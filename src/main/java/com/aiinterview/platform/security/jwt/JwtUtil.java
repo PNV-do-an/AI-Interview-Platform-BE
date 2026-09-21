@@ -3,26 +3,25 @@ package com.aiinterview.platform.security.jwt;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 
-import java.security.Key;
+import javax.crypto.SecretKey;
 import java.util.Date;
 
 public class JwtUtil {
 
     private static final String ACCESS_SECRET = "access-secret-access-secret-access-secret";
     private static final String REFRESH_SECRET = "refresh-secret-refresh-secret-refresh-secret";
-    private static final Key accessKey = Keys.hmacShaKeyFor(ACCESS_SECRET.getBytes());
-    private static final Key refreshKey = Keys.hmacShaKeyFor(REFRESH_SECRET.getBytes());
+    private static final SecretKey accessKey = Keys.hmacShaKeyFor(ACCESS_SECRET.getBytes());
+    private static final SecretKey refreshKey = Keys.hmacShaKeyFor(REFRESH_SECRET.getBytes());
     private static final long EXPIRATION_TIME_ACCESS_TOKEN = 1000 * 60 * 60 * 24;
     private static final long EXPIRATION_TIME_REFRESH_TOKEN =  1000L * 60 * 60 * 24 * 7;
 
     public static String generateAccessToken(String account, String role) {
 
         String accessToken = Jwts.builder()
-                .setSubject(account)
+                .subject(account)
                 .claim("role", role)
-//                .claim("age",age)
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + EXPIRATION_TIME_ACCESS_TOKEN))
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + EXPIRATION_TIME_ACCESS_TOKEN))
                 .signWith(accessKey)
                 .compact();
 
@@ -32,10 +31,10 @@ public class JwtUtil {
     public static String generateRefreshToken(String account, String role) {
 
         String refreshToken = Jwts.builder()
-                .setSubject(account)
+                .subject(account)
                 .claim("role", role)
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + EXPIRATION_TIME_REFRESH_TOKEN))
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + EXPIRATION_TIME_REFRESH_TOKEN))
                 .signWith(refreshKey)
                 .compact();
 
@@ -43,19 +42,19 @@ public class JwtUtil {
     }
 
     public static Claims validateAccessToken(String token) {
-        return Jwts.parserBuilder()
-                .setSigningKey(accessKey)
+        return Jwts.parser()
+                .verifyWith(accessKey)
                 .build()
-                .parseClaimsJws(token)
-                .getBody();
+                .parseSignedClaims(token)
+                .getPayload();
     }
 
     public static Claims validateRefreshToken(String token) {
-        return Jwts.parserBuilder()
-                .setSigningKey(refreshKey)
+        return Jwts.parser()
+                .verifyWith(refreshKey)
                 .build()
-                .parseClaimsJws(token)
-                .getBody();
+                .parseSignedClaims(token)
+                .getPayload();
     }
 
     public static String getUsername(String token) {
