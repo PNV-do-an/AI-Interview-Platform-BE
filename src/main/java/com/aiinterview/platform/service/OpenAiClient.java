@@ -8,13 +8,18 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,9 +75,13 @@ public class OpenAiClient {
     }
 
     public String chat(String userPrompt) {
-        if (aiConfig.getApiKey() == null || aiConfig.getApiKey().isBlank()) {
-            throw new AIServiceException(
-                    "OPENAI_API_KEY chưa được cấu hình. Vui lòng đặt OPENAI_API_KEY trong file .env");
+        return chat(userPrompt, aiConfig.getModel());
+    }
+
+    public String chat(String userPrompt, String model) {
+        assertApiKeyConfigured();
+        if (isGemini()) {
+            return geminiGenerateContent(userPrompt, model);
         }
 
         Map<String, Object> message = new LinkedHashMap<>();
@@ -80,7 +89,7 @@ public class OpenAiClient {
         message.put("content", userPrompt);
 
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", aiConfig.getModel());
+        body.put("model", model);
         body.put("messages", List.of(message));
         body.put("max_tokens", aiConfig.getMaxTokens());
         body.put("temperature", aiConfig.getTemperature());
@@ -104,15 +113,23 @@ public class OpenAiClient {
         }
     }
 
+    public String chatEval(String userPrompt) {
+        return chat(userPrompt, aiConfig.getEvalModel());
+    }
+
     public JsonNode chatJson(String userPrompt) {
-        String content = chat(userPrompt);
+        return chatJson(userPrompt, aiConfig.getModel());
+    }
+
+    public JsonNode chatJson(String userPrompt, String model) {
+        String content = chat(userPrompt, model);
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
                 return objectMapper.readTree(stripCodeFences(content));
             } catch (JsonProcessingException e) {
                 if (attempt < MAX_ATTEMPTS) {
                     log.warn("AI JSON response không hợp lệ (attempt {}). Retry...", attempt);
-                    content = chat(userPrompt);
+                    content = chat(userPrompt, model);
                 } else {
                     log.error("AI JSON parsing thất bại sau {} lần thử. Raw content: {}", MAX_ATTEMPTS, content);
                     throw new AIServiceException("AI trả dữ liệu không hợp lệ", e);
@@ -120,6 +137,197 @@ public class OpenAiClient {
             }
         }
         throw new AIServiceException("AI trả dữ liệu không hợp lệ");
+    }
+
+    public JsonNode chatJsonEval(String userPrompt) {
+        return chatJson(userPrompt, aiConfig.getEvalModel());
+    }
+
+    private void assertApiKeyConfigured() {
+        if (aiConfig.getApiKey() == null || aiConfig.getApiKey().isBlank()) {
+            throw new AIServiceException(
+                    "OPENAI_API_KEY chưa được cấu hình. Vui lòng đặt OPENAI_API_KEY trong file .env");
+        }
+    }
+
+    private boolean isGemini() {
+        return "gemini".equalsIgnoreCase(aiConfig.getProvider());
+    }
+
+    private String geminiGenerateContent(String userPrompt, String model) {
+        Map<String, Object> contents = new LinkedHashMap<>();
+        contents.put("parts", List.of(Map.of("text", userPrompt)));
+
+        Map<String, Object> generationConfig = new LinkedHashMap<>();
+        generationConfig.put("responseMimeType", "application/json");
+        generationConfig.put("maxOutputTokens", aiConfig.getMaxTokens());
+        generationConfig.put("temperature", aiConfig.getTemperature());
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("contents", List.of(contents));
+        body.put("generationConfig", generationConfig);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("x-goog-api-key", aiConfig.getApiKey());
+
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+        return callGemini(aiConfig.getBaseUrl() + "/models/" + model + ":generateContent", entity);
+    }
+
+    private String extractGeminiText(String responseBody) {
+        try {
+            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode error = root.get("error");
+            if (error != null) {
+                throw new AIServiceException("Gemini trả lỗi: " + error.path("message").asText());
+            }
+            JsonNode candidates = root.path("candidates");
+            if (!candidates.isArray() || candidates.isEmpty()) {
+                String blockReason = root.path("promptFeedback").path("blockReason").asText(null);
+                if (blockReason != null) {
+                    throw new AIServiceException("Gemini chặn nội dung: " + blockReason);
+                }
+                throw new AIServiceException("Gemini không trả về nội dung");
+            }
+            JsonNode parts = candidates.get(0).path("content").path("parts");
+            StringBuilder text = new StringBuilder();
+            for (JsonNode part : parts) {
+                text.append(part.path("text").asText());
+            }
+            if (text.toString().isBlank()) {
+                throw new AIServiceException("Gemini không trả về nội dung");
+            }
+            return text.toString().trim();
+        } catch (AIServiceException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new AIServiceException("Không parse được response từ Gemini", e);
+        }
+    }
+
+    public String transcribeAudio(byte[] audioData, String filename) {
+        assertApiKeyConfigured();
+        if (isGemini()) {
+            return geminiTranscribe(audioData, filename);
+        }
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        headers.setBearerAuth(aiConfig.getApiKey());
+
+        ByteArrayResource fileResource = new ByteArrayResource(audioData) {
+            @Override
+            public String getFilename() {
+                return filename == null || filename.isBlank() ? "audio.webm" : filename;
+            }
+        };
+
+        MultiValueMap<String, Object> form = new LinkedMultiValueMap<>();
+        form.add("model", aiConfig.getWhisperModel());
+        form.add("file", fileResource);
+        form.add("response_format", "json");
+
+        HttpEntity<MultiValueMap<String, Object>> entity = new HttpEntity<>(form, headers);
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(
+                    aiConfig.getBaseUrl() + "/audio/transcriptions",
+                    HttpMethod.POST,
+                    entity,
+                    String.class);
+            JsonNode root = objectMapper.readTree(response.getBody());
+            JsonNode error = root.get("error");
+            if (error != null) {
+                throw new AIServiceException("OpenAI transcription lỗi: " + error.path("message").asText());
+            }
+            String text = root.path("text").asText();
+            if (text == null || text.isBlank()) {
+                throw new AIServiceException("Whisper không trả về nội dung transcription");
+            }
+            return text.trim();
+        } catch (AIServiceException e) {
+            throw e;
+        } catch (RestClientException e) {
+            throw new AIServiceException("Lỗi khi gọi OpenAI Whisper: " + e.getMessage(), e);
+        } catch (Exception e) {
+            throw new AIServiceException("Không parse được kết quả transcription từ OpenAI", e);
+        }
+    }
+
+    private String geminiTranscribe(byte[] audioData, String filename) {
+        Map<String, Object> inlineData = new LinkedHashMap<>();
+        inlineData.put("mime_type", guessAudioMime(filename));
+        inlineData.put("data", Base64.getEncoder().encodeToString(audioData));
+
+        Map<String, Object> content = new LinkedHashMap<>();
+        content.put("parts", List.of(
+                Map.of("text", "Transcribe the audio provided in the inline_data below. "
+                        + "Return ONLY the verbatim transcribed text. No JSON, no quotes, no extra words."),
+                Map.of("inline_data", inlineData)));
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("contents", List.of(content));
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("x-goog-api-key", aiConfig.getApiKey());
+
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+        try {
+            return callGemini(aiConfig.getBaseUrl() + "/models/" + aiConfig.getModel() + ":generateContent", entity);
+        } catch (AIServiceException e) {
+            String msg = e.getMessage();
+            if (msg != null && (msg.contains("400") || msg.contains("INVALID_ARGUMENT"))) {
+                throw new AIServiceException(
+                        "Gemini từ chối audio: " + guessAudioMime(filename)
+                                + " (webm/ogg/mp4 không được hỗ trợ; chỉ nhận WAV/PCM). "
+                                + "Với provider openai (whisper-1), ghi âm webm từ trình duyệt vẫn hoạt động bình thường.",
+                        e);
+            }
+            throw e;
+        }
+    }
+
+    private String callGemini(String url, HttpEntity<?> entity) {
+        RestClientException lastError = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+                return extractGeminiText(response.getBody());
+            } catch (HttpServerErrorException.ServiceUnavailable e) {
+                lastError = e;
+                if (attempt == 3) {
+                    throw new AIServiceException("Lỗi khi gọi Gemini: " + e.getMessage(), e);
+                }
+                log.warn("Gemini quá tải (attempt {}) — retry sau {}s", attempt, attempt * 2L);
+                try {
+                    Thread.sleep(attempt * 2000L);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new AIServiceException("Retry Gemini bị gián đoạn", ie);
+                }
+            } catch (RestClientException e) {
+                throw new AIServiceException("Lỗi khi gọi Gemini: " + e.getMessage(), e);
+            }
+        }
+        throw new AIServiceException(
+                "Lỗi khi gọi Gemini sau khi retry: " + (lastError != null ? lastError.getMessage() : "unknown"), lastError);
+    }
+
+    private String guessAudioMime(String filename) {
+        if (filename == null || filename.isBlank()) {
+            return "audio/pcm";
+        }
+        String lower = filename.toLowerCase();
+        if (lower.endsWith(".wav")) return "audio/pcm";
+        if (lower.endsWith(".mp3")) return "audio/mpeg";
+        if (lower.endsWith(".m4a")) return "audio/mp4";
+        if (lower.endsWith(".aac")) return "audio/aac";
+        if (lower.endsWith(".ogg")) return "audio/ogg";
+        if (lower.endsWith(".opus")) return "audio/ogg";
+        if (lower.endsWith(".flac")) return "audio/flac";
+        if (lower.endsWith(".mp4")) return "audio/mp4";
+        return "audio/webm";
     }
 
     private String extractContent(String responseBody) {

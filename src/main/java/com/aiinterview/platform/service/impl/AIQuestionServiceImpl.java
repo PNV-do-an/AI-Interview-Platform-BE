@@ -42,21 +42,49 @@ public class AIQuestionServiceImpl implements AIQuestionService {
         List<Question> questions = new ArrayList<>();
         int allocated = 0;
 
-        for (Map.Entry<DifficultyLevel, Integer> entry : distribution.entrySet()) {
-            DifficultyLevel difficulty = entry.getKey();
-            int percent = entry.getValue() == null ? 0 : entry.getValue();
+        List<Map.Entry<DifficultyLevel, Integer>> active = distribution.entrySet().stream()
+                .filter(e -> e.getValue() != null && e.getValue() > 0)
+                .toList();
+        if (active.isEmpty()) {
+            throw new AIServiceException("Difficulty distribution rỗng, không thể generate câu hỏi");
+        }
+
+        List<Integer> neededList = new ArrayList<>();
+        int sumNeeded = 0;
+        for (Map.Entry<DifficultyLevel, Integer> entry : active) {
+            int percent = entry.getValue();
             int needed = (int) Math.round(count * percent / 100.0);
+            neededList.add(needed);
+            sumNeeded += needed;
+        }
+        int leftover = count - sumNeeded;
+        int spread = 0;
+        while (leftover > 0) {
+            neededList.set(spread % neededList.size(), neededList.get(spread % neededList.size()) + 1);
+            spread++;
+            leftover--;
+        }
+
+        for (int i = 0; i < active.size(); i++) {
+            DifficultyLevel difficulty = active.get(i).getKey();
+            int needed = neededList.get(i);
             if (needed <= 0) {
                 continue;
             }
 
             List<AiQuestionCache> cached = getFromCache(position, skill, difficulty, type, needed);
+            List<Question> cachedQuestions = new ArrayList<>();
             for (AiQuestionCache item : cached) {
-                questions.add(toQuestion(item));
+                if (type == QuestionType.MCQ && (item.getOptions() == null || item.getOptions().isBlank())) {
+                    log.warn("Bỏ qua câu MCQ cũ thiếu options (cache key {}) — sẽ generate mới", item.getCacheKey());
+                    continue;
+                }
+                cachedQuestions.add(toQuestion(item));
                 item.setTimesUsed(item.getTimesUsed() + 1);
                 cacheRepository.save(item);
             }
-            allocated += cached.size();
+            questions.addAll(cachedQuestions);
+            allocated += cachedQuestions.size();
 
             int remaining = needed - cached.size();
             if (remaining > 0) {
@@ -80,10 +108,6 @@ public class AIQuestionServiceImpl implements AIQuestionService {
                     }
                 }
             }
-
-            if (allocated >= count) {
-                break;
-            }
         }
 
         if (questions.isEmpty()) {
@@ -96,7 +120,7 @@ public class AIQuestionServiceImpl implements AIQuestionService {
     public AnswerEvaluationResponse evaluateAnswer(String questionText, String expectedAnswer,
                                                    String questionExplanation, String userAnswer) {
         String prompt = buildEvaluationPrompt(questionText, expectedAnswer, userAnswer);
-        JsonNode node = openAiClient.chatJson(prompt);
+        JsonNode node = openAiClient.chatJsonEval(prompt);
         return mapEvaluation(node, expectedAnswer, questionExplanation);
     }
 
@@ -252,6 +276,14 @@ public class AIQuestionServiceImpl implements AIQuestionService {
 
     private String buildQuestionPrompt(String position, String skill,
                                        DifficultyLevel difficulty, QuestionType type, int count) {
+        boolean mcq = type == QuestionType.MCQ;
+        String optionsRule = mcq
+                ? "- For MCQ questions: provide exactly 4 options as an array of objects "
+                + "[{\"key\": \"A\", \"text\": \"Option text\"}, ...] and set \"correct_answer\" to the key (e.g. \"A\") of the correct option.\n"
+                : "";
+        String optionsField = mcq
+                ? "\"options\": [{\"key\": \"A\", \"text\": \"Option A\"}, {\"key\": \"B\", \"text\": \"Option B\"}, {\"key\": \"C\", \"text\": \"Option C\"}, {\"key\": \"D\", \"text\": \"Option D\"}]\n"
+                : "\"options\": null\n";
         return """
                 Generate {{count}} interview questions for the position: "{{position}}", covering the skill: "{{skill}}".
                 Question type: {{type}}. Difficulty: {{difficulty}}.
@@ -261,7 +293,7 @@ public class AIQuestionServiceImpl implements AIQuestionService {
                 - The question must fit an interview for the position "{{position}}".
                 - Answer in the same language as the question content.
                 - Provide a concise correct answer and a short explanation.
-
+                {{options_rule}}
                 Return a JSON object with exactly this structure:
                 {
                   "questions": [
@@ -271,7 +303,7 @@ public class AIQuestionServiceImpl implements AIQuestionService {
                       "question_text": "Your question here",
                       "correct_answer": "Expected answer",
                       "explanation": "Why this answer is correct",
-                      "options": null
+                      {{options_field}}
                     }
                   ]
                 }
@@ -282,7 +314,9 @@ public class AIQuestionServiceImpl implements AIQuestionService {
                 .replace("{{position}}", position)
                 .replace("{{skill}}", skill)
                 .replace("{{type}}", type.name())
-                .replace("{{difficulty}}", difficulty.name());
+                .replace("{{difficulty}}", difficulty.name())
+                .replace("{{options_rule}}", optionsRule)
+                .replace("{{options_field}}", optionsField);
     }
 
     private String buildEvaluationPrompt(String questionText, String expectedAnswer, String userAnswer) {
