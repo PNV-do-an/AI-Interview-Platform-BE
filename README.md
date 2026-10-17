@@ -24,12 +24,19 @@ Testcontainers chỉ chạy được ở môi trường có Docker (CI), trên W
 
 ## CI/CD
 
-Push vào `dev` → GitHub Actions chạy `Backend tests` → Render chỉ deploy khi
-check đó xanh (`autoDeployTrigger: checksPass` trong `render.yaml`). Sau đó job
-`Report to deploy repo` báo SHA sang repo
-`AI-Interview-Platform-deploy-staging` để ghi status lên bảng theo dõi chung —
-cần secret **`DEPLOY_PAT`** (fine-grained token, chỉ repo deploy, quyền
-*Actions: read and write*).
+Push vào `dev` → GitHub Actions chạy `Backend tests`. Khi test xanh, job
+`Bump superrepo submodule` cập nhật con trỏ submodule `backend` trong repo
+`AI-Interview-Platform-deploy-staging` sang đúng SHA vừa test. Chính superrepo
+đó mới gọi Render deploy hook để build + deploy — service Render đang đặt
+`autoDeployTrigger: off` nên không tự chạy theo commit nữa.
+
+Cần secret **`DEPLOY_PAT`**: fine-grained token, chỉ cấp repo
+`AI-Interview-Platform-deploy-staging`, quyền **Contents: read and write**
+(bot push commit bump submodule).
+
+Lưu ý: Render build từ đầu nhánh `dev` của repo này, không build đúng SHA mà
+superrepo đang trỏ. Muốn deploy lại chính xác một SHA thì tạo branch/tag từ
+SHA đó rồi trỏ service Render sang branch ấy.
 
 Tài liệu đặc tả và quy ước (`spec/`) nằm ở repo
 `AI-Interview-Platform-deploy-staging`.

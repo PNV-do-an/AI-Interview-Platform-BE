@@ -8,7 +8,9 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /api/v1/packages
-    autoDeployTrigger: checksPass
+    # Superrepo (repo deploy-staging) la noi phat dong deploy backend qua
+    # deploy hook, nen Render khong tu build theo commit nua.
+    autoDeployTrigger: off
     envVars:
       - key: PORT
         value: "8080"

@@ -15,8 +15,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Render gate bản deploy backend bằng `autoDeployTrigger: checksPass`: nó chờ
-  # mọi status check trên commit dev, nên job này phải chạy xong mới deploy.
   backend-test:
     name: Backend tests
     runs-on: ubuntu-latest
@@ -40,26 +38,39 @@ jobs:
           name: surefire-reports
           path: target/surefire-reports
 
-  # Render tu deploy backend. Job nay chi bao ve repo deploy-staging de ghi
-  # status "backend / staging" len bang theo doi chung.
-  # continue-on-error: Render gate bang MOI check tren commit, nen mot job
-  # bao cao that bai khong duoc phep chan lan deploy.
-  notify-deploy-repo:
-    name: Report to deploy repo
+  # Render khong tu deploy nua (autoDeployTrigger: off). Repo con chi bump con
+  # tro submodule trong superrepo; superrepo moi goi Render deploy hook.
+  bump-superrepo:
+    name: Bump superrepo submodule
     needs: backend-test
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
-    continue-on-error: true
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Dispatch Staging Deploy
+      - name: Push new submodule pointer
         env:
           PAT: ${{ secrets.DEPLOY_PAT }}
           SHA: ${{ github.sha }}
+          SUB: backend
         run: |
-          code=$(curl -sS -o /tmp/dispatch.json -w '%{http_code}' \
-            -X POST -H "Authorization: Bearer $PAT" -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/PNV-do-an/AI-Interview-Platform-deploy-staging/actions/workflows/staging-deploy.yml/dispatches" \
-            -d "{\"ref\":\"dev\",\"inputs\":{\"backend_sha\":\"$SHA\"}}")
-          echo "dispatch HTTP $code"
-          [ "$code" = "204" ] || { cat /tmp/dispatch.json; exit 1; }
+          set -euo pipefail
+          if [ -z "$PAT" ]; then echo "Thieu secret DEPLOY_PAT"; exit 1; fi
+          git config --global user.name  "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global http.https://github.com/.extraheader \
+            "AUTHORIZATION: basic $(printf 'oauth2:%s' "$PAT" | base64 -w0)"
+          url=https://github.com/PNV-do-an/AI-Interview-Platform-deploy-staging.git
+          for try in 1 2 3; do
+            rm -rf /tmp/super
+            git clone --quiet --depth 1 "$url" /tmp/super
+            git -C /tmp/super update-index --cacheinfo 160000,"$SHA","$SUB"
+            if git -C /tmp/super diff --cached --quiet; then
+              echo "superrepo dang tro dung $SHA, khong bump"; exit 0
+            fi
+            git -C /tmp/super commit -q -m "chore(deploy): $SUB -> $SHA"
+            if git -C /tmp/super push --quiet origin HEAD:dev; then
+              echo "da bump $SUB -> $SHA"; exit 0
+            fi
+            echo "push bi conflict, thu lan $try"; sleep 5
+          done
+          echo "khong bump duoc sau 3 lan"; exit 1
