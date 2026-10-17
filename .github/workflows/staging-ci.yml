@@ -39,3 +39,27 @@ jobs:
         with:
           name: surefire-reports
           path: target/surefire-reports
+
+  # Render tu deploy backend. Job nay chi bao ve repo deploy-staging de ghi
+  # status "backend / staging" len bang theo doi chung.
+  # continue-on-error: Render gate bang MOI check tren commit, nen mot job
+  # bao cao that bai khong duoc phep chan lan deploy.
+  notify-deploy-repo:
+    name: Report to deploy repo
+    needs: backend-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch Staging Deploy
+        env:
+          PAT: ${{ secrets.DEPLOY_PAT }}
+          SHA: ${{ github.sha }}
+        run: |
+          code=$(curl -sS -o /tmp/dispatch.json -w '%{http_code}' \
+            -X POST -H "Authorization: Bearer $PAT" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/PNV-do-an/AI-Interview-Platform-deploy-staging/actions/workflows/staging-deploy.yml/dispatches" \
+            -d "{\"ref\":\"dev\",\"inputs\":{\"backend_sha\":\"$SHA\"}}")
+          echo "dispatch HTTP $code"
+          [ "$code" = "204" ] || { cat /tmp/dispatch.json; exit 1; }
