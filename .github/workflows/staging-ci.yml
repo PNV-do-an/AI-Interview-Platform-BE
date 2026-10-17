@@ -62,8 +62,8 @@ jobs:
           url=https://github.com/PNV-do-an/AI-Interview-Platform-deploy-staging.git
           for try in 1 2 3; do
             rm -rf /tmp/super
-            git clone --quiet --depth 1 "$url" /tmp/super
-            git -C /tmp/super update-index --cacheinfo 160000,"$SHA","$SUB"
+            git clone --quiet "$url" /tmp/super
+            git -C /tmp/super update-index --add --replace --cacheinfo 160000,"$SHA","$SUB"
             if git -C /tmp/super diff --cached --quiet; then
               echo "superrepo dang tro dung $SHA, khong bump"; exit 0
             fi
