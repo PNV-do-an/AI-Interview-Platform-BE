@@ -4,10 +4,14 @@ import com.aiinterview.platform.common.exception.InvalidAccountException;
 import com.aiinterview.platform.common.exception.InvalidPasswordException;
 import com.aiinterview.platform.model.dto.response.PasswordResetResponse;
 import com.aiinterview.platform.model.dto.response.ResetTokenInfoResponse;
+import com.aiinterview.platform.model.entity.PasswordResetAttempt;
 import com.aiinterview.platform.model.entity.User;
+import com.aiinterview.platform.model.repository.PasswordResetAttemptRepository;
 import com.aiinterview.platform.model.repository.UserRepository;
+import com.aiinterview.platform.security.utils.SecurityUtils;
 import com.aiinterview.platform.service.EmailService;
 import com.aiinterview.platform.service.PasswordResetService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -24,6 +28,7 @@ import java.util.regex.Pattern;
 public class PasswordResetServiceImpl implements PasswordResetService {
 
     private final UserRepository userRepository;
+    private final PasswordResetAttemptRepository resetAttemptRepository;
     private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
 
@@ -33,10 +38,34 @@ public class PasswordResetServiceImpl implements PasswordResetService {
     /** Nối với chữ "Reset link expires in 30 minutes" trên màn quên mật khẩu. */
     private static final int RESET_TOKEN_TTL_MINUTES = 30;
 
+    private static final int RESET_REQUEST_WINDOW_MINUTES = 15;
+    private static final int MAX_RESET_REQUESTS_PER_EMAIL = 5;
+    private static final int MAX_RESET_REQUESTS_PER_IP = 10;
+
     private static final String GENERIC_MESSAGE = "Nếu email tồn tại, bạn sẽ nhận được link đặt lại mật khẩu.";
 
     @Override
-    public String forgotPassword(String email) {
+    public String forgotPassword(String email, HttpServletRequest request) {
+        if (email == null || email.isBlank()) {
+            return GENERIC_MESSAGE;
+        }
+
+        String ipClient = SecurityUtils.getClientIP(request);
+        LocalDateTime windowStart = LocalDateTime.now().minusMinutes(RESET_REQUEST_WINDOW_MINUTES);
+
+        long emailRequests = resetAttemptRepository.countByAccountAndCreatedAtAfter(email, windowStart);
+        long ipRequests = resetAttemptRepository.countByAddressAndCreatedAtAfter(ipClient, windowStart);
+
+        // Ghi lượt yêu cầu trước khi quyết định: lượt bị chặn cũng phải đếm được ở cửa sổ tiếp theo
+        resetAttemptRepository.save(new PasswordResetAttempt(ipClient, email));
+
+        if (emailRequests >= MAX_RESET_REQUESTS_PER_EMAIL || ipRequests >= MAX_RESET_REQUESTS_PER_IP) {
+            // Vẫn trả thông báo chung như mọi lượt khác: trả lỗi sẽ tố giác email có tồn tại hay không.
+            log.warn("Quá tải yêu cầu đặt lại mật khẩu — email={}, ip={}, emailRequests={}, ipRequests={}",
+                    email, ipClient, emailRequests, ipRequests);
+            return GENERIC_MESSAGE;
+        }
+
         User user = userRepository.findByEmail(email).orElse(null);
 
         if (user == null || user.getDeletedAt() != null) {
