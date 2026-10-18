@@ -20,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -63,20 +64,21 @@ class RegisterInterfaceImplTest {
     }
 
     @Test
-    void registersActiveUserWithoutAttemptRow() {
+    void registersDisabledUserAwaitingEmailVerificationWithoutAttemptRow() {
         noRecentFailures();
         when(userRepository.existsByEmail(EMAIL)).thenReturn(false);
         when(passwordEncoder.encode(GOOD_PASSWORD)).thenReturn("hashed");
 
         RegisterResponse response = registerService.register(EMAIL, GOOD_PASSWORD, "Jane Doe", null, request);
 
-        assertTrue(response.getMessage().contains("đăng nhập ngay"));
+        assertTrue(response.getMessage().contains("kiểm tra email"));
         ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
         verify(userRepository).save(saved.capture());
         User user = saved.getValue();
         assertEquals(EMAIL, user.getEmail());
         assertEquals(Role.ROLE_USER, user.getRole());
-        assertTrue(user.isEnabled());
+        // Bắt buộc xác thực email: user tạo ra chưa được kích hoạt, chỉ verifyEmail() mới bật lên
+        assertFalse(user.isEnabled());
         assertNotNull(user.getVerificationToken());
         verify(registerAttemptRepository, never()).save(any(RegisterAttempt.class));
     }

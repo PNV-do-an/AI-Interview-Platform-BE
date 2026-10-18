@@ -119,7 +119,8 @@ class PersistenceTest {
         User registered = storedUser(email);
         Long userId = registered.getId();
         assertNotNull(userId);
-        assertTrue(registered.isEnabled());
+        // User mới đăng ký CHƯA được kích hoạt — phải verify email (bên dưới) mới bật enabled
+        assertFalse(registered.isEnabled());
         assertEquals(FULL_NAME, registered.getFullName());
         assertEquals(PHONE, registered.getPhone());
         assertEquals(Role.ROLE_USER, registered.getRole());
@@ -590,14 +591,15 @@ class PersistenceTest {
 
         assertNotNull(registerService.register(email, PASSWORD, FULL_NAME, PHONE, request(ip)));
         verify(emailService).sendVerificationEmail(eq(email), eq(FULL_NAME), anyString());
-        assertTrue(storedUser(email).isEnabled());
+        // Mail fail -> đăng ký vẫn lưu (count 1) nhưng user CHƯA enabled (chưa verify được)
+        assertFalse(storedUser(email).isEnabled());
         assertEquals(1L, userRepository.count());
         assertEquals(0L, registerAttemptRepository.count());
         assertEquals(0L, loginAttemptRepository.count());
 
         restartContext();
 
-        assertTrue(storedUser(email).isEnabled());
+        assertFalse(storedUser(email).isEnabled());
         assertEquals(1L, userRepository.count());
         assertEquals(0L, registerAttemptRepository.count());
         assertEquals(0L, loginAttemptRepository.count());
