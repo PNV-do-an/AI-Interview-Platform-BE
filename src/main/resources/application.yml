@@ -13,27 +13,17 @@ spring:
         dialect: org.hibernate.dialect.MySQLDialect
   flyway:
     enabled: false
-  mail:
-    host: ${MAIL_HOST:smtp.gmail.com}
-    port: ${MAIL_PORT:587}
-    username: ${MAIL_USERNAME:noreply@aiinterview.com}
-    password: ${MAIL_PASSWORD:}
-    test-connection: ${MAIL_TEST_CONNECTION:true}
-    properties:
-      mail:
-        smtp:
-          auth: ${MAIL_SMTP_AUTH:true}
-          # SMTP không reachable thì mặc định JavaMail connect vô hạn -> treo request đăng ký hàng phút
-          connectiontimeout: 3000
-          timeout: 5000
-          writetimeout: 5000
-          starttls:
-            enable: ${MAIL_STARTTLS:true}
 
+# Nền tảng PaaS (Render, container...) truyền cổng nghe qua env PORT; mặc định 8080
 server:
-  port: 8080
+  port: ${PORT:8080}
 
 app:
+  mail:
+    # Resend HTTP API - thay SMTP de khoi phu thuoc port 25/587 (xem spec/features/registration-email.md)
+    resend-api-key: ${RESEND_API_KEY:}
+    from: ${MAIL_FROM:onboarding@resend.dev}
+    resend-base-url: ${RESEND_BASE_URL:https://api.resend.com}
   jwt:
     secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
     expiration: 86400000
