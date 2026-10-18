@@ -92,7 +92,7 @@ Hệ quả: demo "luồng liên vai trò thông suốt" nghiệm thu được �
 | Mã | SRS nói gì | Code hiện có |
 |---|---|---|
 | NFR-01 | Giới hạn chức năng theo vai trò, 403 khi sai quyền | `CODE` — `@PreAuthorize` rải ở `JobController`, `ApplicationController`, `SlotController`, `AdminUserController` (class-level) |
-| NFR-02 | Dữ liệu tài khoản/hồ sơ quản lý theo quyền | `CODE`/một phần — phân quyền theo endpoint; **điểm yếu đã đo**: access token hạn 24h nên "đăng xuất mọi phiên" sau reset chỉ vô hiệu được refresh token (`known-gaps.md`, `features/password-reset.md` mục 9). Mật khẩu bcrypt, token reset UUID single-use, rate-limit theo cửa sổ 5 phút cho register/login |
+| NFR-02 | Dữ liệu tài khoản/hồ sơ quản lý theo quyền | `CODE`/một phần — phân quyền theo endpoint; **điểm yếu đã đo**: access token hạn 24h nên "đăng xuất mọi phiên" sau reset chỉ vô hiệu được refresh token (`known-gaps.md`, `features/password-reset.md` mục 9). Mật khẩu bcrypt, token reset UUID single-use, rate-limit theo cửa sổ (register 5 phút: ≥10/IP + ≥5/email; login 15 phút: ≥20/IP + ≥5/email; forgot-password 15 phút: ≥10/IP + ≥5/email, tính từ 2026-10-17) |
 | NFR-03 | Ổn định phục vụ demo/nghiệm thu | `DO` một phần — luồng auth (đăng ký, đăng nhập email + OAuth, quên mật khẩu) đã đo trên staging; các luồng JD/application/slot/mock-interview mới ở mức `CODE`, chưa đo end-to-end |
 | NFR-04 | Hiệu năng, scale, backup, logging, SLA: SRS nói "chưa đặc tả" | đồng ý với SRS: repo cũng chưa có. Logging chỉ là `log.info/warn` trong service, không có metrics/trace. Schema tiến hoá bằng `ddl-auto: update` (Flyway tắt) — xem `known-gaps.md` mục 1 |
 

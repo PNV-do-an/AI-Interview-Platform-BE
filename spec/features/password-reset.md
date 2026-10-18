@@ -10,14 +10,14 @@ User quên mật khẩu nhận link qua email, mở link thấy được tài kh
 
 ## 2. Phạm vi / Không làm
 
-- Làm: `POST /forgot-password` (đã có, sửa TTL 15 -> 30 phút theo mockup), `GET /reset-password?token=` (mới: validate link + trả danh tính), `POST /reset-password` (hợp đồng mới: token + password + confirmPassword + signOutEverywhere), thu hồi phiên qua claim `tv` ở `POST /refresh`, 2 màn frontend dựng lại theo mockup.
+- Làm: `POST /forgot-password` (đã có, sửa TTL 15 -> 30 phút theo mockup; thêm cửa sổ đếm lượt 2026-10-17), `GET /reset-password?token=` (mới: validate link + trả danh tính), `POST /reset-password` (hợp đồng mới: token + password + confirmPassword + signOutEverywhere), thu hồi phiên qua claim `tv` ở `POST /refresh`, 2 màn frontend dựng lại theo mockup.
 - Không làm: "Verify via SMS code" (không có API SMS — nút hiển thị notice "not available yet"); đếm số phiên bị thu hồi ("COMPLETED (2 SESSIONS)") vì hệ thống không có bảng session, chỉ có `token_version`; revocation tức thời access token (access token vẫn hạn 24h — xem mục 9); email thật (SMTP chưa bật, link nằm trong log).
 
 ## 3. API thật dùng được
 
 | Endpoint | Method | Response liên quan | Ghi chú |
 |---|---|---|---|
-| `/api/v1/auth/forgot-password` | POST | 200 `ApiResponse{message}` (message chung, không lộ email tồn tại hay không) | token UUID, TTL 30 phút, mỗi lần gọi ghi đè token cũ |
+| `/api/v1/auth/forgot-password` | POST | Luôn 200 `ApiResponse{message}` với cùng một message chung (kể cả lúc bị chặn — không lộ email tồn tại hay không) | token UUID, TTL 30 phút; mỗi lượt ghi 1 dòng `password_reset_attempts`; ≥5 lượt/email hoặc ≥10 lượt/IP trong 15 phút thì bỏ qua (không ghi đè token, không gửi email) |
 | `/api/v1/auth/reset-password?token=` | GET | 200 `{fullName, email, role, remainingSeconds}`; 401 "không hợp lệ" / "đã hết hạn" | route công khai, dùng cho màn đặt mật khẩu mới |
 | `/api/v1/auth/reset-password` | POST | 200 `{eventId, signedOutEverywhere}`; 400 thiếu field; 401 sai confirm / mật khẩu yếu / token sai-hết hạn | token chỉ dùng 1 lần, thành công là xoá `reset_token` |
 | `/api/v1/auth/refresh` | POST | 200 token mới; 401 "Phiên đăng nhập không còn hiệu lực" | so `tv` trong refresh token với `users.token_version` |
@@ -33,7 +33,7 @@ User quên mật khẩu nhận link qua email, mở link thấy được tài kh
 | "Passwords match" badge | so sánh client `password === confirmPassword` | — |
 | Modal `EVENT_ID` | `eventId` từ API (`evt_rot_<userId>_<8 ký tự>`) | — |
 | Modal `REVOCATION_STATUS` | `signedOutEverywhere` -> "COMPLETED (ALL SESSIONS)" / "SKIPPED (THIS DEVICE ONLY)" | không bịa số phiên |
-| "Check your inbox" + "Resend email" | 200 từ forgot-password | cooldown 30s ("Resend available in Ns") rồi mới cho gửi lại |
+| "Check your inbox" + "Resend email" | 200 từ forgot-password | cooldown 30s ("Resend available in Ns") rồi mới cho gửi lại; quá ngưỡng server (5 lượt/email trong 15 phút) thì API vẫn 200 nhưng không có email mới — client không phân biệt được, đó là đánh đổi để giữ anti-enumeration |
 
 ## 5. Khối mockup BỎ + lý do
 
@@ -46,6 +46,7 @@ User quên mật khẩu nhận link qua email, mở link thấy được tài kh
 ## 6. Việc backend cần làm (đã xong)
 
 - `RESET_TOKEN_TTL_MINUTES = 30`; user không tồn tại hoặc `deletedAt != null` -> trả message chung, không ném lỗi (chống dò email).
+- Cửa sổ đếm lượt `POST /forgot-password` (thêm 2026-10-17): bảng mới `password_reset_attempts(account, address, created_at)` do Hibernate `ddl-auto: update` tạo; mỗi lượt ghi 1 dòng **trước khi** quyết định (lượt bị chặn cũng phải đếm được ở cửa sổ sau), ngưỡng `MAX_RESET_REQUESTS_PER_EMAIL = 5` và `MAX_RESET_REQUESTS_PER_IP = 10` trong 15 phút. Khi vượt: vẫn trả đúng message chung 200, **không** ghi đè `reset_token` (link đang gửi giữ nguyên), **không** gọi SMTP, chỉ `log.warn`. IP lấy qua `SecurityUtils.getClientIP(request)` nên phải truyền `HttpServletRequest` vào service (controller đổi chữ ký `forgotPassword(email, httpRequest)`).
 - `getResetTokenInfo(token)`: cùng luồng kiểm tra với reset (token hợp lệ -> còn hạn -> tài khoản còn sống), trả `remainingSeconds = Duration.between(now, expiry)`.
 - `resetPassword(token, newPassword, confirmPassword, signOutEverywhere)`: thứ tự kiểm tra token -> confirm khớp -> pattern -> đổi mật khẩu; `signOutEverywhere` khác `false` (kể cả null) là bump `token_version`; kết quả trả `eventId` + cờ thực thi.
 - Claim `tv` trong refresh token (`JwtUtil.generateRefreshToken(account, role, tokenVersion)`), `POST /refresh` từ chối khi `tv` lệch `users.token_version`; cả 4 chỗ phát refresh token (login, Google, GitHub, SSO) đều truyền version hiện tại.
@@ -66,6 +67,10 @@ User quên mật khẩu nhận link qua email, mở link thấy được tài kh
 | 9 | POST hợp lệ, signOutEverywhere false | 200 `signedOutEverywhere: false`, `token_version` giữ nguyên, refresh token hiện tại -> 200 |
 | 10 | Dùng lại token sau khi reset | 401 "không hợp lệ" |
 | 11 | Login mật khẩu cũ / mới sau reset | cũ 401 "Mật khẩu sai", mới 200 |
+| 12 | forgot lần 1-5 cùng email trong 15 phút | 200 message chung, token mới mỗi lần, 5 dòng `password_reset_attempts` |
+| 13 | forgot lần 6 cùng email (vượt 5/15 phút) | vẫn 200 message **y hệt**, token + expiry giữ nguyên, không gửi email, vẫn +1 dòng |
+| 14 | forgot email thật khi IP đã đủ 10 lượt | vẫn 200 message chung, `reset_token` vẫn NULL; cũng email đó từ IP khác -> được cấp token |
+| 15 | forgot email không tồn tại / email rỗng | 200 message chung; email không tồn tại vẫn +1 dòng (đếm cho IP), email rỗng không ghi dòng nào |
 
 ## 8. Cách đã verify
 
@@ -78,6 +83,15 @@ User quên mật khẩu nhận link qua email, mở link thấy được tài kh
 - Token giả -> card lỗi "Link đặt lại mật khẩu không hợp lệ"; vào `/reset-password` không query -> "This link is missing or no longer valid."; "Request a new reset link" -> `/forgot-password`; "Verify via SMS code" -> notice; SSO -> `/login`.
 
 Chưa verify ở viewport >=1024px (browser-use hidden viewport — xem `verification.md` mục 4).
+
+Đo lại 2026-10-17 (lô thêm cửa sổ đếm lượt), code production `docker compose` (backend image rebuild, DB `mysqljava`):
+
+- `mvn -B clean test -Dtest=RegisterInterfaceImplTest,PasswordResetServiceImplTest,RegisterRequestValidationTest` trong container `maven:3.9.6`: **16/16 pass**, trong đó `PasswordResetServiceImplTest` 8 test (hạn token 30 phút, đủ điều kiện thì cấp token + ghi dòng, ngưỡng 5/email, ngưỡng 10/IP, email không tồn tại vẫn đếm, email rỗng không chạm repository, SMTP chết vẫn lưu token, reset xong thì lượt sau cấp token khác).
+- Boot tạo bảng: `show tables like '%attempt%'` -> `password_reset_attempts` (`id, account, address, created_at datetime(6)`), 2 `@Index` (account+created_at, address+created_at) hiện đúng.
+- #12/#13: 5 request liên tiếp cho `probe-reset-...@example.test` từ IP `203.0.113.60` -> 5x 200 message chung, `password_reset_attempts` đếm 1..5, `users.reset_token` đổi sau mỗi lần; request thứ 6 -> vẫn 200 **cùng message**, row thứ 6 vẫn ghi, nhưng `reset_token_expiry` giữ nguyên mốc của request 5 (đo: expiry `15:31:11` = 15:01:11 + 30 phút, trong khi request 6 chạy lúc 15:01:17).
+- #14: 10 request với email không tồn tại từ IP `203.0.113.81` -> đủ 10 dòng; request thứ 11 bằng email THẬT (`probe-gap4@example.test`, `reset_token` đang NULL) -> 200 message chung và `reset_token` **vẫn NULL**; cũng request đó đổi sang IP `203.0.113.82` -> 200 và token được cấp (`9543cdbf-...`).
+- #15: email không tồn tại -> 200 message chung + 1 dòng; `{"email":"  "}` -> 200 message chung, 0 dòng (`count(*) where address='203.0.113.61'` = 1, chỉ dòng của email không tồn tại).
+- Không hồi quy luồng reset: `POST /register` email mới -> 201, `POST /reset-password` vẫn chạy (unit test #8 trong `PasswordResetServiceImplTest` đi đủ đường forgot -> reset -> forgot).
 
 ## 9. Câu hỏi mở cho anh Huy
 
