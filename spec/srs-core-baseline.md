@@ -31,7 +31,7 @@ Kết luận cho Q-01/Q-07/Q-12: repo hiện đối xử Employer và Mentor là
 |---|---|---|---|
 | FR-AUTH-01 | Đăng ký + đăng nhập | `DO` | `POST /api/v1/auth/register` 201/400/409, `POST /login` 200, `GET /verify`, `POST /resend-verification`; OAuth Google/GitHub/SSO có thêm ngoài SRS. Chi tiết + đo: `features/sign-up.md` |
 | FR-AUTH-01 (mở rộng) | Quên mật khẩu / đổi mật khẩu | `DO` | `POST /forgot-password`, `GET|POST /reset-password`, thu hồi phiên qua `POST /refresh`. Chi tiết: `features/password-reset.md` |
-| — | Xác thực email **bắt buộc trước khi đăng nhập** | `KHONG` (chủ đích) | Tài khoản auto-enabled; `MAIL_PASSWORD` rỗng ở mọi env nên chặn là không ai đăng ký được. Quyết định đã chốt, xem mục 8 Q-01 |
+| — | Xác thực email **bắt buộc trước khi đăng nhập** | `DO` (code, 2026-10-18) — chờ SMTP + đo e2e | Chốt: phải bấm link trong mail mới login. `RegisterInterfaceImpl` tạo user `enabled=false`; chặn đã có sẵn (`LoginInterfaceImpl:57`, `JwtFilter:49`), test unit 19/19 pass. Còn mở: SMTP credential ở các env + đo verify→login e2e (`features/registration-email.md` mục 5 bước 1–2, 7) |
 | FR-AUTH-02 | RBAC, sai quyền -> 403 | `CODE` | `@PreAuthorize` cấp method/class như mục 1; `controller/SlotController.java`, `ApplicationController.java:50` `hasRole('USER')` |
 | FR-AUTH-03 | Admin xem/tìm/lock/unlock tài khoản | `CODE` | `controller/AdminUserController.java`: `GET /api/v1/admin/users?page&size&search&status&role` (:26), `GET /users/{id}` (:38), `PATCH /users/{id}/lock|unlock` (:44,:50), `PATCH /users/{id}/role` (:70), `DELETE /users/{id}` (:56), `POST /users/{id}/reset-password` (:63), `GET /audit-logs` (:79). Lỗ hổng UI đã ghi: `known-gaps.md` (audit log hiện `targetUserId` thô, bộ lọc thiếu `DELETED`) |
 | FR-AUTH-04 | Hồ sơ cá nhân + **tải lên CV** | `MOT PHAN` | Hồ sơ: `GET|PUT /api/v1/candidate-profile` (`controller/CandidateProfileController.java:20,27`). CV: **không có multipart** (0 kết quả `MultipartFile` toàn backend) — `POST /api/v1/cv/analyze` nhận `cvText` JSON (`model/dto/request/CvAnalyzeRequest.java:10-12`), `CandidateProfile.cvFileName` là chuỗi tự gõ |
@@ -161,7 +161,7 @@ Không ghi ngày/ước lượng; thứ tự chỉ là phụ thuộc kỹ thuậ
 4. **Đổi lịch / hủy slot** (FR-SCH-02): thêm endpoint hoặc mở rộng `PATCH /applications/{id}/cancel`; chốt quy tắc xung đột lịch (Q-06).
 5. **Múi giờ slot** (rủi ro đã ghi ở `known-gaps.md`): backend đang so "quá khứ" bằng UTC trong khi user nhập giờ VN — phải đặt `TZ` container hoặc bỏ check phía server.
 6. **Thu hồi phiên tức thời** (NFR-02): xem `features/password-reset.md` mục 9.
-7. **SMTP thật** (nền cho FR-SCH-03 và luồng verify): chỉ là cấu hình `MAIL_*` ở môi trường, nhưng khi bật thì phải quyết lại "chặn đăng nhập khi chưa verify email" (`features/sign-up.md` mục 9).
+7. **SMTP thật** (nền cho FR-SCH-03 và luồng verify): đã chốt 2026-10-18 — chặn đăng nhập khi chưa verify email là **bật**, nên `MAIL_*` credential thật thành điều kiện tiên quyết trước khi đổi `enabled=false` lúc register. Plan + thứ tự: `features/registration-email.md` mục 5.
 
 ## 10. Liên kết
 

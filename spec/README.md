@@ -16,6 +16,7 @@ spec/
   srs-core-baseline.md           SRS Core Baseline (3 vai trò) -> đối chiếu từng FR/NFR với code thật
   known-gaps.md                  lỗ hổng backend/API/số liệu đã kiểm chứng, chưa sửa
   features/sign-up.md            kế hoạch luồng đăng ký (API, rate-limit, test cases, số đo)
+  features/registration-email.md spec+plan "đăng ký thì gửi mail" (hợp đồng hành vi, SMTP còn mở)
   features/password-reset.md     kế hoạch luồng quên mật khẩu (API, thu hồi phiên, số đo)
   templates/feature-plan.md      mẫu kế hoạch cho tính năng mới
 ```
