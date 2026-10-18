@@ -82,7 +82,7 @@ class RegisterInterfaceImplTest {
     }
 
     @Test
-    void duplicateEmailIsRejectedWith409ExceptionAndNeverSaved() {
+    void duplicateEmailIsRejectedWith409ExceptionAndRecordedAsFailedAttempt() {
         noRecentFailures();
         when(userRepository.existsByEmail(EMAIL)).thenReturn(true);
 
@@ -91,6 +91,12 @@ class RegisterInterfaceImplTest {
 
         verify(userRepository, never()).save(any(User.class));
         verify(emailService, never()).sendVerificationEmail(anyString(), anyString(), anyString());
+
+        ArgumentCaptor<RegisterAttempt> attempt = ArgumentCaptor.forClass(RegisterAttempt.class);
+        verify(registerAttemptRepository).save(attempt.capture());
+        assertEquals(IP, attempt.getValue().getAddress());
+        assertEquals(EMAIL, attempt.getValue().getAccount());
+        assertNotNull(attempt.getValue().getTimestamp());
     }
 
     @Test

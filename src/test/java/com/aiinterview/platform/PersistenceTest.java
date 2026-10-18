@@ -1,5 +1,6 @@
 package com.aiinterview.platform;
 
+import com.aiinterview.platform.common.exception.EmailAlreadyRegisteredException;
 import com.aiinterview.platform.common.exception.InvalidAccountException;
 import com.aiinterview.platform.common.exception.InvalidAccountLockedException;
 import com.aiinterview.platform.common.exception.InvalidPasswordException;
@@ -7,10 +8,12 @@ import com.aiinterview.platform.config.DataInitializer;
 import com.aiinterview.platform.model.dto.response.PasswordResetResponse;
 import com.aiinterview.platform.model.dto.response.ResetTokenInfoResponse;
 import com.aiinterview.platform.model.entity.LoginAttempt;
+import com.aiinterview.platform.model.entity.PasswordResetAttempt;
 import com.aiinterview.platform.model.entity.RegisterAttempt;
 import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.enums.Role;
 import com.aiinterview.platform.model.repository.LoginAttemptRepository;
+import com.aiinterview.platform.model.repository.PasswordResetAttemptRepository;
 import com.aiinterview.platform.model.repository.RegisterAttemptRepository;
 import com.aiinterview.platform.model.repository.JpaUserRepository;
 import com.aiinterview.platform.service.EmailService;
@@ -62,6 +65,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -81,6 +85,7 @@ class PersistenceTest {
     private JpaUserRepository userRepository;
     private LoginAttemptRepository loginAttemptRepository;
     private RegisterAttemptRepository registerAttemptRepository;
+    private PasswordResetAttemptRepository resetAttemptRepository;
     private LoginInterface loginService;
     private RegisterInterface registerService;
     private PasswordResetService passwordResetService;
@@ -93,6 +98,7 @@ class PersistenceTest {
         openContext();
         loginAttemptRepository.deleteAll();
         registerAttemptRepository.deleteAll();
+        resetAttemptRepository.deleteAll();
         userRepository.deleteAll();
     }
 
@@ -256,6 +262,29 @@ class PersistenceTest {
     }
 
     @Test
+    void duplicateEmailRegistrationCommitsAttemptAndKeepsWindowCount() {
+        String email = "duplicate-register@example.test";
+        String ip = "203.0.113.16";
+        Long userId = seedEnabledUser(email).getId();
+
+        assertThrows(EmailAlreadyRegisteredException.class,
+                () -> registerService.register(email, PASSWORD, FULL_NAME, PHONE, request(ip)));
+
+        LocalDateTime since = LocalDateTime.now().minusMinutes(5);
+        assertEquals(1L, registerAttemptRepository.count());
+        assertEquals(1L, registerAttemptRepository.countByAccountAndTimestampAfter(email, since));
+        assertEquals(1L, registerAttemptRepository.countByAddressAndTimestampAfter(ip, since));
+        assertEquals(1L, userRepository.count());
+        assertEquals(userId, storedUser(email).getId());
+        verifyNoInteractions(emailService);
+
+        restartContext();
+
+        assertEquals(1L, registerAttemptRepository.count());
+        assertEquals(1L, registerAttemptRepository.countByAccountAndTimestampAfter(email, since));
+    }
+
+    @Test
     void recentAttemptQueriesRespectSuccessEmailIpAndStrictTimestampCutoffs() {
         String email = "queries@example.test";
         String otherEmail = "other-queries@example.test";
@@ -321,7 +350,7 @@ class PersistenceTest {
         seeded.setLockUntil(LocalDateTime.now().plusMinutes(15));
         userRepository.saveAndFlush(seeded);
 
-        assertNotNull(passwordResetService.forgotPassword(email));
+        assertNotNull(passwordResetService.forgotPassword(email, request("203.0.113.30")));
         User pending = storedUser(email);
         Long userId = pending.getId();
         String token = pending.getResetToken();
@@ -400,7 +429,7 @@ class PersistenceTest {
         String email = "reset-rules@example.test";
         int tokenVersionBefore = seedEnabledUser(email).getTokenVersion();
 
-        passwordResetService.forgotPassword(email);
+        passwordResetService.forgotPassword(email, request("203.0.113.33"));
         String token = storedUser(email).getResetToken();
         assertNotNull(token);
 
@@ -423,7 +452,7 @@ class PersistenceTest {
         assertThrows(InvalidAccountException.class,
                 () -> passwordResetService.resetPassword("absent-token", NEW_PASSWORD, NEW_PASSWORD, true));
 
-        passwordResetService.forgotPassword(email);
+        passwordResetService.forgotPassword(email, request("203.0.113.33"));
         String freshToken = storedUser(email).getResetToken();
         assertFalse(freshToken.equals(token));
         PasswordResetResponse kept =
@@ -434,6 +463,95 @@ class PersistenceTest {
         assertEquals(tokenVersionBefore, afterReset.getTokenVersion());
         assertNull(afterReset.getResetToken());
         assertNull(afterReset.getResetTokenExpiry());
+    }
+
+    @Test
+    void forgotPasswordCommitsEveryRequestAndThrottlesByEmailThenByIp() {
+        String generic = "Nếu email tồn tại, bạn sẽ nhận được link đặt lại mật khẩu.";
+        String email = "reset-throttle@example.test";
+        String ip = "203.0.113.31";
+        seedEnabledUser(email);
+        LocalDateTime windowStart = LocalDateTime.now().minusMinutes(15);
+
+        for (int call = 1; call <= 5; call++) {
+            assertEquals(generic, passwordResetService.forgotPassword(email, request(ip)));
+            assertEquals(call, resetAttemptRepository.countByAccountAndCreatedAtAfter(email, windowStart));
+            assertEquals(call, resetAttemptRepository.countByAddressAndCreatedAtAfter(ip, windowStart));
+            assertNotNull(storedUser(email).getResetToken());
+        }
+        verify(emailService, times(5)).sendResetPasswordEmail(eq(email), eq(FULL_NAME), anyString());
+
+        // Lượt thứ 6 vượt ngưỡng 5/email: token và hạn token giữ nguyên, không gửi email, thông báo không đổi
+        User beforeThrottle = storedUser(email);
+        String keptToken = beforeThrottle.getResetToken();
+        LocalDateTime keptExpiry = beforeThrottle.getResetTokenExpiry();
+        assertEquals(generic, passwordResetService.forgotPassword(email, request(ip)));
+        User afterThrottle = storedUser(email);
+        assertEquals(keptToken, afterThrottle.getResetToken());
+        assertEquals(keptExpiry, afterThrottle.getResetTokenExpiry());
+        assertEquals(6L, resetAttemptRepository.countByAccountAndCreatedAtAfter(email, windowStart));
+        verify(emailService, times(5)).sendResetPasswordEmail(eq(email), eq(FULL_NAME), anyString());
+
+        // Đủ ngưỡng 10 lượt/IP trong 15 phút: email mới có tài khoản thật cũng không được cấp token
+        for (int extra = 6; extra <= 9; extra++) {
+            String otherEmail = "reset-throttle-" + extra + "@example.test";
+            seedEnabledUser(otherEmail);
+            passwordResetService.forgotPassword(otherEmail, request(ip));
+            assertNotNull(storedUser(otherEmail).getResetToken());
+        }
+        assertEquals(9L, resetAttemptRepository.countByAddressAndCreatedAtAfter(ip, windowStart));
+
+        String tenthEmail = "reset-throttle-10@example.test";
+        seedEnabledUser(tenthEmail);
+        assertEquals(generic, passwordResetService.forgotPassword(tenthEmail, request(ip)));
+        assertNull(storedUser(tenthEmail).getResetToken());
+        verify(emailService, never()).sendResetPasswordEmail(eq(tenthEmail), anyString(), anyString());
+
+        String freshEmail = "reset-throttle-fresh@example.test";
+        seedEnabledUser(freshEmail);
+        assertEquals(generic, passwordResetService.forgotPassword(freshEmail, request(ip)));
+        assertNull(storedUser(freshEmail).getResetToken());
+        verify(emailService, never()).sendResetPasswordEmail(eq(freshEmail), anyString(), anyString());
+
+        restartContext();
+
+        // Lượt bị chặn vẫn nằm lại bảng nên cửa sổ 15 phút còn đếm được sau khi restart
+        assertEquals(12L, resetAttemptRepository.count());
+        assertEquals(12L,
+                resetAttemptRepository.countByAddressAndCreatedAtAfter(ip, LocalDateTime.now().minusMinutes(15)));
+        assertNull(storedUser(freshEmail).getResetToken());
+        assertNull(storedUser(tenthEmail).getResetToken());
+    }
+
+    @Test
+    void resetAttemptWindowQueriesRespectEmailIpAndStrictTimestampCutoff() {
+        String email = "reset-window@example.test";
+        String otherEmail = "reset-window-other@example.test";
+        String ip = "203.0.113.32";
+        String otherIp = "203.0.113.132";
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(15).truncatedTo(ChronoUnit.SECONDS);
+        LocalDateTime recent = cutoff.plusMinutes(1);
+
+        resetAttemptRepository.saveAllAndFlush(List.of(
+                resetAttempt(ip, email, cutoff.minusSeconds(1)),
+                resetAttempt(ip, email, cutoff),
+                resetAttempt(ip, email, recent),
+                resetAttempt(ip, otherEmail, recent),
+                resetAttempt(otherIp, email, recent)));
+
+        assertEquals(2L, resetAttemptRepository.countByAccountAndCreatedAtAfter(email, cutoff));
+        assertEquals(1L, resetAttemptRepository.countByAccountAndCreatedAtAfter(otherEmail, cutoff));
+        assertEquals(2L, resetAttemptRepository.countByAddressAndCreatedAtAfter(ip, cutoff));
+        assertEquals(1L, resetAttemptRepository.countByAddressAndCreatedAtAfter(otherIp, cutoff));
+        assertEquals(0L, resetAttemptRepository.countByAddressAndCreatedAtAfter("203.0.113.232", cutoff));
+
+        PasswordResetAttempt firstByEmail = resetAttemptRepository.findFirstByAccountOrderByIdAsc(email);
+        assertNotNull(firstByEmail);
+        assertNotNull(identifier(firstByEmail));
+        assertEquals(email, firstByEmail.getAccount());
+        assertEquals(ip, firstByEmail.getAddress());
+        assertEquals(cutoff.minusSeconds(1), firstByEmail.getCreatedAt());
+        assertNull(resetAttemptRepository.findFirstByAccountOrderByIdAsc("absent@example.test"));
     }
 
     @Test
@@ -512,6 +630,7 @@ class PersistenceTest {
         userRepository = context.getBean(JpaUserRepository.class);
         loginAttemptRepository = context.getBean(LoginAttemptRepository.class);
         registerAttemptRepository = context.getBean(RegisterAttemptRepository.class);
+        resetAttemptRepository = context.getBean(PasswordResetAttemptRepository.class);
         loginService = context.getBean(LoginInterface.class);
         registerService = context.getBean(RegisterInterface.class);
         passwordResetService = context.getBean(PasswordResetService.class);
@@ -619,6 +738,12 @@ class PersistenceTest {
     private RegisterAttempt registerAttempt(String ip, String email, LocalDateTime timestamp) {
         RegisterAttempt attempt = new RegisterAttempt(ip, email);
         attempt.setTimestamp(timestamp);
+        return attempt;
+    }
+
+    private PasswordResetAttempt resetAttempt(String ip, String email, LocalDateTime timestamp) {
+        PasswordResetAttempt attempt = new PasswordResetAttempt(ip, email);
+        ReflectionTestUtils.setField(attempt, "createdAt", timestamp);
         return attempt;
     }
 

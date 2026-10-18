@@ -215,8 +215,9 @@ public class AuthController {
     }
 
     @PostMapping("/forgot-password")
-    public ResponseEntity<ApiResponse<String>> forgotPassword(@RequestBody Map<String, String> request) {
-        String message = passwordResetService.forgotPassword(request.get("email"));
+    public ResponseEntity<ApiResponse<String>> forgotPassword(@RequestBody Map<String, String> request,
+                                                              HttpServletRequest httpRequest) {
+        String message = passwordResetService.forgotPassword(request.get("email"), httpRequest);
         return ResponseEntity.ok(ApiResponse.success(message));
     }
 

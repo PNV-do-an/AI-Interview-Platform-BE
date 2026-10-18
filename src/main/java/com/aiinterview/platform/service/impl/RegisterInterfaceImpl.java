@@ -60,13 +60,12 @@ public class RegisterInterfaceImpl implements RegisterInterface {
         }
 
         if (userRepository.existsByEmail(email)) {
+            recordFailedAttempt(ipClient, email);
             throw new EmailAlreadyRegisteredException("Email đã tồn tại trong hệ thống");
         }
 
         if (password == null || !PASSWORD_PATTERN.matcher(password).matches()) {
-            RegisterAttempt failed = new RegisterAttempt(ipClient, email);
-            failed.setTimestamp(LocalDateTime.now());
-            registerAttemptRepository.save(failed);
+            recordFailedAttempt(ipClient, email);
             throw new InvalidPasswordException(
                     "Mật khẩu phải có tối thiểu 8 ký tự, bao gồm chữ hoa, chữ thường, số và ký tự đặc biệt (@#$%^&+=!)"
             );
@@ -94,6 +93,12 @@ public class RegisterInterfaceImpl implements RegisterInterface {
         }
 
         return new RegisterResponse("Đăng ký thành công! Bạn có thể đăng nhập ngay.");
+    }
+
+    private void recordFailedAttempt(String ipClient, String email) {
+        RegisterAttempt failed = new RegisterAttempt(ipClient, email);
+        failed.setTimestamp(LocalDateTime.now());
+        registerAttemptRepository.save(failed);
     }
 
     @Override
