@@ -85,4 +85,7 @@ Chưa verify bằng mắt ở desktop >=1024px (browser-use hidden viewport — 
 
 ## 9. Câu hỏi mở cho anh Huy
 
-- **Chặn login khi chưa verify email?** Đề xuất: chưa (SMTP chưa cấu hình thật — `MAIL_PASSWORD` rỗng ở mọi env; chặn thì không ai đăng ký được). Khi nào bật SMTP: `enabled=false` lúc register + trang `/verify` đã có sẵn đường đi.
+- **Chặn login khi chưa verify email?** ~~Đề xuất: chưa~~ → **ĐẢO CHỐT 2026-10-18: BẬT chặn**
+  (phải xác nhận trong mail mới đăng nhập được). Quyết định + thứ tự thực hiện nằm ở
+  `features/registration-email.md` — hiện `MAIL_PASSWORD` vẫn rỗng ở mọi env nên chưa được
+  bật code change cho tới khi SMTP thật đo xong (điều kiện tiên quyết ở đó mục 5 bước 1–2).

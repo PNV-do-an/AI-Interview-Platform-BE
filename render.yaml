@@ -18,6 +18,8 @@ services:
         value: "-XX:MaxRAMPercentage=70 -XX:+UseSerialGC -Xss512k -XX:TieredStopAtLevel=1"
       - key: MAIL_TEST_CONNECTION
         value: "false"
+      - key: RESEND_API_KEY
+        sync: false
       - key: SPRING_DATASOURCE_URL
         sync: false
       - key: DB_USERNAME

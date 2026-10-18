@@ -79,7 +79,8 @@ public class RegisterInterfaceImpl implements RegisterInterface {
                 .fullName(fullName)
                 .phone(phone)
                 .role(Role.ROLE_USER)
-                .enabled(true)
+                // enabled=false: phải bấm link xác thực trong mail (verifyEmail bật lên true) mới login được
+                .enabled(false)
                 .verificationToken(verificationToken)
                 .verificationTokenExpiry(LocalDateTime.now().plusHours(24))
                 .build();
@@ -92,7 +93,7 @@ public class RegisterInterfaceImpl implements RegisterInterface {
             log.warn("Không thể gửi email xác thực tới {}: {}", email, e.getMessage());
         }
 
-        return new RegisterResponse("Đăng ký thành công! Bạn có thể đăng nhập ngay.");
+        return new RegisterResponse("Đăng ký thành công! Vui lòng kiểm tra email và bấm link xác thực trước khi đăng nhập.");
     }
 
     private void recordFailedAttempt(String ipClient, String email) {
