@@ -492,14 +492,14 @@ class PersistenceTest {
         assertEquals(6L, resetAttemptRepository.countByAccountAndCreatedAtAfter(email, windowStart));
         verify(emailService, times(5)).sendResetPasswordEmail(eq(email), eq(FULL_NAME), anyString());
 
-        // Đủ ngưỡng 10 lượt/IP trong 15 phút: email mới có tài khoản thật cũng không được cấp token
+        // 6 luot dau + vong lap nay 4 luot = du 10 luot/IP trong cua so 15 phut
         for (int extra = 6; extra <= 9; extra++) {
             String otherEmail = "reset-throttle-" + extra + "@example.test";
             seedEnabledUser(otherEmail);
             passwordResetService.forgotPassword(otherEmail, request(ip));
             assertNotNull(storedUser(otherEmail).getResetToken());
         }
-        assertEquals(9L, resetAttemptRepository.countByAddressAndCreatedAtAfter(ip, windowStart));
+        assertEquals(10L, resetAttemptRepository.countByAddressAndCreatedAtAfter(ip, windowStart));
 
         String tenthEmail = "reset-throttle-10@example.test";
         seedEnabledUser(tenthEmail);
