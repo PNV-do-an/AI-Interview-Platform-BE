@@ -16,8 +16,6 @@ services:
         value: "8080"
       - key: JAVA_TOOL_OPTIONS
         value: "-XX:MaxRAMPercentage=70 -XX:+UseSerialGC -Xss512k -XX:TieredStopAtLevel=1"
-      - key: MAIL_TEST_CONNECTION
-        value: "false"
       - key: GMAIL_CLIENT_ID
         sync: false
       - key: GMAIL_CLIENT_SECRET
