@@ -18,7 +18,13 @@ services:
         value: "-XX:MaxRAMPercentage=70 -XX:+UseSerialGC -Xss512k -XX:TieredStopAtLevel=1"
       - key: MAIL_TEST_CONNECTION
         value: "false"
-      - key: RESEND_API_KEY
+      - key: GMAIL_CLIENT_ID
+        sync: false
+      - key: GMAIL_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_REFRESH_TOKEN
+        sync: false
+      - key: MAIL_FROM
         sync: false
       - key: SPRING_DATASOURCE_URL
         sync: false
