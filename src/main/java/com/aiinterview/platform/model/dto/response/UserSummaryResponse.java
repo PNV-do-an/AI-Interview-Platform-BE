@@ -16,7 +16,12 @@ public class UserSummaryResponse {
     private String fullName;
     private Role role;
     private String status;   // ACTIVE | INACTIVE | LOCKED | DELETED
+    /** True while the verification link has never been used (Clarify C-2: "Pending Invite"). */
+    private boolean pendingVerification;
+    /** Last successful login, derived from {@code login_attempts}; null = never signed in. */
+    private LocalDateTime lastLoginAt;
     private LocalDateTime createdAt;
+    private LocalDateTime deletedAt;
 
     public static UserSummaryResponse from(User user) {
         return UserSummaryResponse.builder()
@@ -25,7 +30,9 @@ public class UserSummaryResponse {
                 .fullName(user.getFullName())
                 .role(user.getRole())
                 .status(resolveStatus(user))
+                .pendingVerification(user.getVerificationToken() != null)
                 .createdAt(user.getCreatedAt())
+                .deletedAt(user.getDeletedAt())
                 .build();
     }
 

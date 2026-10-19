@@ -2,20 +2,27 @@ package com.aiinterview.platform.common.exception;
 
 import com.aiinterview.platform.model.entity.ErrorModel;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -36,12 +43,13 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(InvalidAccountLockedException.class)
     public ResponseEntity<?> handleInvalidAccountLocked(InvalidAccountLockedException ex,HttpServletRequest request) {
+        // Tài khoản bị admin khóa không có lockUntil; Map.of rejected null -> 500 khi đăng nhập.
+        Map<String, Object> details = new HashMap<>();
+        if (ex.getLockUntil() != null) {
+            details.put("lockedUntil", ex.getLockUntil());
+        }
         ErrorModel error = new ErrorModel(423,ex.getMessage(), request.getRequestURL().toString(), LocalDateTime.now(),
-                new HashMap<>(
-                        Map.of(
-                                "lockedUntil", ex.getLockUntil()
-                        )
-                ));
+                details);
         return ResponseEntity.status(423).body(error);
     }
 
@@ -58,9 +66,57 @@ public class GlobalExceptionHandler {
         for (FieldError error : ex.getBindingResult().getFieldErrors()) {
             fieldErrors.put(error.getField(), error.getDefaultMessage());
         }
-        ErrorModel error = new ErrorModel(400, "Validation failed", request.getRequestURL().toString(), LocalDateTime.now(),
+        ErrorModel error = new ErrorModel(400, "Dữ liệu không hợp lệ", request.getRequestURL().toString(), LocalDateTime.now(),
                 fieldErrors);
         return ResponseEntity.status(400).body(error);
+    }
+
+    /** Constraint violations on method parameters (@Validated + @Min/@Max on @RequestParam). */
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<?> handleConstraintViolation(ConstraintViolationException ex, HttpServletRequest request) {
+        Map<String, Object> details = new HashMap<>();
+        ex.getConstraintViolations().forEach(v -> details.put(lastPathNode(v.getPropertyPath().toString()), v.getMessage()));
+        ErrorModel error = new ErrorModel(400, "Dữ liệu không hợp lệ", request.getRequestURL().toString(),
+                LocalDateTime.now(), details);
+        return ResponseEntity.status(400).body(error);
+    }
+
+    /** Built-in controller parameter validation failure (Spring 6.1 path, no @Validated on the class). */
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<?> handleMethodValidation(HandlerMethodValidationException ex, HttpServletRequest request) {
+        Map<String, Object> details = new HashMap<>();
+        ex.getAllValidationResults().forEach(result -> result.getResolvableErrors().forEach(error -> {
+            String[] codes = error.getCodes();
+            String key = codes != null && codes.length > 0 ? codes[0] : "invalid";
+            details.put(key, error.getDefaultMessage());
+        }));
+        ErrorModel error = new ErrorModel(400, "Dữ liệu không hợp lệ", request.getRequestURL().toString(),
+                LocalDateTime.now(), details);
+        return ResponseEntity.status(400).body(error);
+    }
+
+    /** A query/path parameter cannot be converted — e.g. status=FOO, role=ROLE_FOO. */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<?> handleTypeMismatch(MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
+        Map<String, Object> details = new HashMap<>();
+        details.put("parameter", ex.getName());
+        details.put("rejectedValue", ex.getValue());
+        Class<?> targetType = ex.getRequiredType();
+        if (targetType != null && targetType.isEnum()) {
+            details.put("allowedValues", Arrays.stream(targetType.getEnumConstants())
+                    .map(Object::toString).toList());
+        }
+        String message = "Tham số '" + ex.getName() + "' không hợp lệ"
+                + (targetType != null && targetType.isEnum()
+                ? ". Giá trị được phép: " + details.get("allowedValues") : "");
+        ErrorModel error = new ErrorModel(400, message, request.getRequestURL().toString(),
+                LocalDateTime.now(), details);
+        return ResponseEntity.status(400).body(error);
+    }
+
+    private static String lastPathNode(String path) {
+        int dot = path.lastIndexOf('.');
+        return dot >= 0 ? path.substring(dot + 1) : path;
     }
 
     @ExceptionHandler(BadRequestException.class)
@@ -89,15 +145,23 @@ public class GlobalExceptionHandler {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         boolean anonymous = authentication == null || authentication instanceof AnonymousAuthenticationToken;
         int status = anonymous ? 401 : 403;
-        ErrorModel error = new ErrorModel(status, anonymous ? "Authentication required" : "Access denied",
+        ErrorModel error = new ErrorModel(status, anonymous ? "Yêu cầu đăng nhập" : "Bạn không có quyền truy cập chức năng quản trị",
                 request.getRequestURL().toString(), LocalDateTime.now(), new HashMap<>());
         return ResponseEntity.status(status).body(error);
     }
 
+    /** Request body is missing or not valid JSON. */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<?> handleUnreadableBody(HttpMessageNotReadableException ex, HttpServletRequest request) {
+        ErrorModel error = new ErrorModel(400, "Dữ liệu gửi lên không đúng định dạng", request.getRequestURL().toString(),
+                LocalDateTime.now(), new HashMap<>());
+        return ResponseEntity.status(400).body(error);
+    }
+
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<?> handleOther(RuntimeException ex, HttpServletRequest request) {
-        ex.printStackTrace();
-        ErrorModel error = new ErrorModel(500, "Internal server error: " + ex.getMessage(), request.getRequestURL().toString(), LocalDateTime.now(),
+        log.error("Unhandled error on {}", request.getRequestURL(), ex);
+        ErrorModel error = new ErrorModel(500, "Lỗi hệ thống. Vui lòng thử lại sau.", request.getRequestURL().toString(), LocalDateTime.now(),
                 new HashMap<>());
         return ResponseEntity.status(500).body(error);
     }

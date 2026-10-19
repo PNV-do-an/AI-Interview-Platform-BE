@@ -1,5 +1,6 @@
 package com.aiinterview.platform.security.jwt;
 
+import com.aiinterview.platform.common.exception.InvalidAccountException;
 import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.service.UserService;
 import io.jsonwebtoken.JwtException;
@@ -56,8 +57,8 @@ public class JwtFilter extends OncePerRequestFilter {
 
                 SecurityContextHolder.getContext().setAuthentication(auth);
 
-            } catch (JwtException | UsernameNotFoundException e) {
-                // Invalid token or user not found — continue without authentication
+            } catch (JwtException | UsernameNotFoundException | InvalidAccountException e) {
+                // Invalid token or user no longer exists — continue without authentication
             }
         }
 

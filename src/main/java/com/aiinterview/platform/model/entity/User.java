@@ -53,6 +53,10 @@ public class User implements UserDetails {
     @Column
     private LocalDateTime deletedAt;
 
+    /** When an admin locked this account; null when never locked or unlocked */
+    @Column(name = "locked_at")
+    private LocalDateTime lockedAt;
+
     @Column(updatable = false)
     private LocalDateTime createdAt;
 
