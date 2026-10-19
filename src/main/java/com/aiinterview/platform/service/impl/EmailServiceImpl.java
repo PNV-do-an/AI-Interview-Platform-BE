@@ -155,7 +155,7 @@ public class EmailServiceImpl implements EmailService {
                 "Xin chào " + fullName + ",\n\n"
                         + "Bạn đã yêu cầu đặt lại mật khẩu. Nhấn vào link sau:\n"
                         + frontendUrl + "/reset-password?token=" + token + "\n\n"
-                        + "Link có hiệu lực trong 1 giờ. Nếu bạn không yêu cầu điều này, hãy bỏ qua email này.");
+                        + "Link có hiệu lực trong 30 phút. Nếu bạn không yêu cầu điều này, hãy bỏ qua email này.");
     }
 
     @Override
