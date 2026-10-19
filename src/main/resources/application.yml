@@ -20,10 +20,16 @@ server:
 
 app:
   mail:
-    # Resend HTTP API - thay SMTP de khoi phu thuoc port 25/587 (xem spec/features/registration-email.md)
-    resend-api-key: ${RESEND_API_KEY:}
-    from: ${MAIL_FROM:onboarding@resend.dev}
-    resend-base-url: ${RESEND_BASE_URL:https://api.resend.com}
+    # Gmail API qua HTTPS: Render free tier chặn SMTP 25/465/587, Resend test mode chỉ giao
+    # thư cho chủ tài khoản (xem spec/features/registration-email.md)
+    gmail:
+      client-id: ${GMAIL_CLIENT_ID:}
+      client-secret: ${GMAIL_CLIENT_SECRET:}
+      refresh-token: ${GMAIL_REFRESH_TOKEN:}
+    # MAIL_FROM phải đúng là hộp thư đã cấp refresh token (Gmail không cho spoof From qua API)
+    from: ${MAIL_FROM:}
+    token-uri: ${GMAIL_TOKEN_URI:https://oauth2.googleapis.com/token}
+    api-base-url: ${GMAIL_API_BASE_URL:https://gmail.googleapis.com}
   jwt:
     secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
     expiration: 86400000

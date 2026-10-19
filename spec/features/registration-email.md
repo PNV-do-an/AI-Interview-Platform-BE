@@ -18,8 +18,9 @@ Mockup nguồn: không có mockup riêng — màn hình dùng chung với `featu
 
 Người dùng đăng ký tài khoản xong thì nhận được một email xác thực chứa link hợp lệ;
 **chỉ sau khi bấm link đó mới đăng nhập được** (chốt 2026-10-18, thay quyết định
-auto-activation cũ ở `sign-up.md` mục 9). Nếu email không gửi được thì việc đăng ký vẫn
-201 và user thoát bằng `POST /resend-verification` khi SMTP hoạt động lại.
+auto-activation cũ ở `sign-up.md` mục 9). Nếu email không gửi được thì đăng ký **thất bại**
+(502, user bị hoàn tác, decision 2026-10-19: THAY cho quyết định "vẫn 201 + log.warn" cũ),
+vì 201-không-kèm-mail tạo ra tài khoản mồ côi mà người dùng không bao giờ kích hoạt được.
 
 ### 2. Phạm vi / Không làm
 
@@ -37,7 +38,7 @@ auto-activation cũ ở `sign-up.md` mục 9). Nếu email không gửi được
 | # | Tình huống | Kết quả mong đợi |
 |---|---|---|
 | 1 | Đăng ký hợp lệ | 201 + user tạo mới với `enabled=false` (chưa login được) + **một email xác thực được phát đi** với link mang token của chính user đó |
-| 2 | SMTP chết / thiếu credential | vẫn 201, user vẫn tạo, lỗi mail chỉ ghi log — đăng ký không bao giờ chết vì mail; user chưa verify thì login bị 401, đường thoát là resend |
+| 2 | Kênh mail chết (thiếu credential, Google/Resend trả 4xx-5xx) | **502 "Không gửi được email..."**, `@Transactional` hoàn tác user vừa lưu — không tồn tại tài khoản mồ côi mà client được báo thành công |
 | 3 | Bấm link `.../verify?token=<token thật>` | 200, tài khoản được kích hoạt, token bị xoá không dùng lại được |
 | 4 | Token sai hoặc quá 24 giờ | 401 kèm thông điệp tương ứng |
 | 5 | User chưa verify bấm gửi lại | token mới 24 giờ được tạo và mail thứ hai gửi đi; user đã enabled thì 401 |
@@ -74,19 +75,31 @@ CHẶN LOGIN (đã có sẵn, không phải viết mới):
   User.java:45                   mặc định enabled=false — RegisterInterfaceImpl:82 đang set tay true
 ```
 
-Cấu hình mail — **đã chuyển sang Resend HTTP API (2026-10-18)**: `EmailServiceImpl` dùng
-`RestClient` gọi `POST https://api.resend.com/emails` (key `RESEND_API_KEY`, địa chỉ gửi
-`MAIL_FROM`, `RESEND_BASE_URL` override được để test); không còn `spring-boot-starter-mail`,
-`spring.mail.*` và 3 timeout SMTP. Lý do: HTTP API không phụ thuộc port SMTP (25 bị nhiều
-nền tảng serverless chặn) và Resend chạy y hệt trên Render. Deploy giữ `Dockerfile` hiện tại cho
-Render; hướng Vercel Container Runtime (`Dockerfile.vercel`) đã thử và **bỏ** — beta không
-phát hiện file, build emit static rồi 404 mọi path.
+Cấu hình mail — **đã chuyển sang Gmail API (2026-10-19)**: `EmailServiceImpl` đổi lấy access
+token từ `https://oauth2.googleapis.com/token` (client id/secret + refresh token, cache tới
+trước khi hết hạn 1 giờ) rồi `POST https://gmail.googleapis.com/gmail/v1/users/me/messages/send`
+với `raw` = MIME RFC 2822 base64url (subject tiếng Việt mã hóa RFC 2047). Env:
+`GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `MAIL_FROM` (bắt buộc đúng là
+hộp thư đã cấp token), `GMAIL_TOKEN_URI` + `GMAIL_API_BASE_URL` override được để test.
+
+Lịch sử kênh gửi, để không quay lại vết cũ:
+- **SMTP (JavaMailSender)** — bỏ 2026-10-18: Render free tier chặn outbound port 25/465/587
+  (changelog chính thức, hiệu lực 26/09/2025), nên mọi attempt gửi từ staging chết ở TCP.
+- **Resend HTTP API** — bỏ 2026-10-19: tài khoản chưa verify domain nên chỉ dùng được
+  `onboarding@resend.dev`, và địa chỉ đó **chỉ giao thư cho chính email chủ tài khoản** (đo:
+  403 `validation_error` với mọi recipient lạ, kể cả plus-addressing). Hệ quả đo được: user thật
+  đăng ký vẫn nhận 201 nhưng không bao giờ nhận link → kẹt 401 vĩnh viễn. Muốn dùng lại Resend
+  thì phải verify domain + đổi `MAIL_FROM`; đó là việc hạ tầng, không phải việc code.
+- `Dockerfile` hiện tại cho Render giữ nguyên; hướng Vercel Container Runtime (`Dockerfile.vercel`)
+  đã thử và **bỏ** — beta không phát hiện file, build emit static rồi 404 mọi path.
 
 ### 5. Các bước thực hiện (theo đúng thứ tự — bước 1 chưa xong thì chưa làm bước 3)
 
-1. **Cấp email provider thật** — ĐỔI 2026-10-18: code đã chuyển sang Resend HTTP API, nên việc
-   còn lại là tạo account resend.com → lấy API key → set env `RESEND_API_KEY` (+ `MAIL_FROM`
-   khi đã verify domain DNS) cho từng môi trường:
+1. **Cấp email provider thật** — ĐỔI 2026-10-19: code đã chuyển sang Gmail API, việc còn lại là
+   bật Gmail API trên chính Google Cloud project đang dùng cho Login with Google, rồi set
+   `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` / `GMAIL_REFRESH_TOKEN` / `MAIL_FROM` (hướng dẫn
+   từng bước trong `.env.example`; lưu ý chuyển consent screen sang "In production" vì ở chế độ
+   Testing thì refresh token hết hạn sau 7 ngày):
    - Local/dev: `.env` (theo `.env.example`).
    - Staging (Render): env của service — chỉ đổi cấu hình, không sửa code.
    Sau bước này mail verify **đã gửi thật** nhưng user vẫn login được ngay (chưa đổi `enabled`).
@@ -99,10 +112,10 @@ phát hiện file, build emit static rồi 404 mọi path.
      `verifyEmail()` đã xử lý đúng.
 4. **Sửa test đang pin hành vi cũ** (test đang assert user mới đăng ký là enabled — phải
    đảo kỳ vọng theo hợp đồng mới ở mục 3):
-   - `RegisterInterfaceImplTest`: case đăng ký hợp lệ + `emailSendFailureDoesNotBreakRegistration`
-     (vẫn phải 201 khi mail fail, nhưng user `enabled=false`).
-   - `PersistenceTest.verificationEmailFailureStillPersistsRegistration` (L584-604):
-     `assertTrue(storedUser(email).isEnabled())` → `assertFalse` + token còn trong DB.
+   - `RegisterInterfaceImplTest`: case đăng ký hợp lệ + `emailSendFailureBreaksRegistration`
+     (đảo 2026-10-19: mail fail → 502, kỳ vọng cũ "vẫn 201" đã bỏ).
+   - `PersistenceTest.verificationEmailFailureRollsBackRegistration` (đảo 2026-10-19:
+     mail fail → `userRepository.count()==0`, không còn user `enabled=false` sót lại).
    - Thêm case mới: login trước verify → 401; login sau verify → 200.
 5. **Việc ngoài repo BE** (ghi để bàn giao FE): `RegisterPage` đang chuyển `/login?registered=true`
    kèm banner "Registration successful! Please sign in to continue." — phải đổi thành hướng dẫn

@@ -1,5 +1,6 @@
 package com.aiinterview.platform.service.impl;
 
+import com.aiinterview.platform.common.exception.MailDeliveryException;
 import com.aiinterview.platform.model.dto.response.PasswordResetResponse;
 import com.aiinterview.platform.model.entity.PasswordResetAttempt;
 import com.aiinterview.platform.model.entity.User;
@@ -165,17 +166,17 @@ class PasswordResetServiceImplTest {
     }
 
     @Test
-    void emailDeliveryFailureStillPersistsTheToken() {
+    void emailDeliveryFailureClearsTokenAndKeepsGenericMessage() {
         noRequestsYet();
         User user = user();
         when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.of(user));
-        doThrow(new RuntimeException("smtp down"))
+        doThrow(new MailDeliveryException("Không gửi được email. Vui lòng thử lại hoặc liên hệ hỗ trợ."))
                 .when(emailService).sendResetPasswordEmail(anyString(), anyString(), anyString());
 
         assertEquals(GENERIC, passwordResetService.forgotPassword(EMAIL, request(IP)));
 
-        assertNotNull(user.getResetToken());
-        verify(userRepository).save(user);
+        assertNull(user.getResetToken());
+        assertNull(user.getResetTokenExpiry());
     }
 
     @Test

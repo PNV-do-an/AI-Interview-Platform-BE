@@ -1,45 +1,134 @@
 package com.aiinterview.platform.service.impl;
 
+import com.aiinterview.platform.common.exception.MailDeliveryException;
 import com.aiinterview.platform.service.EmailService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Map;
 
+/**
+ * Gửi mail qua Gmail API (HTTPS).
+ *
+ * SMTP bị loại vì Render free tier chặn outbound port 25/465/587 (changelog 26/09/2025),
+ * còn Resend ở chế độ test chỉ giao thư cho email chủ tài khoản nên user thật không nhận được
+ * link xác thực. Gmail API chạy trên 443, không cần verify domain, miễn là có OAuth refresh
+ * token của chính hộp thư gửi.
+ */
 @Service
+@Slf4j
 public class EmailServiceImpl implements EmailService {
 
-    private final RestClient resend;
-    private final String apiKey;
+    /** Message trả về client: mô tả hậu quả, không lộ chi tiết upstream. */
+    static final String SEND_FAILED_MESSAGE =
+            "Không gửi được email. Vui lòng thử lại hoặc liên hệ hỗ trợ.";
+
+    /** Access token sống 1 giờ; làm sớm 5 phút để không có request nào rơi vào token hết hạn. */
+    private static final long TOKEN_LIVE_SECONDS = 3300;
+
+    private final RestClient http;
+    private final String clientId;
+    private final String clientSecret;
+    private final String refreshToken;
+    private final String tokenUri;
     private final String from;
     private final String frontendUrl;
 
+    private volatile String accessToken;
+    private volatile long accessTokenExpiresAtEpochSecond;
+
     public EmailServiceImpl(
-            @Value("${app.mail.resend-api-key:}") String apiKey,
-            @Value("${app.mail.from:onboarding@resend.dev}") String from,
-            @Value("${app.mail.resend-base-url:https://api.resend.com}") String baseUrl,
+            @Value("${app.mail.gmail.client-id:}") String clientId,
+            @Value("${app.mail.gmail.client-secret:}") String clientSecret,
+            @Value("${app.mail.gmail.refresh-token:}") String refreshToken,
+            @Value("${app.mail.from:}") String from,
+            @Value("${app.mail.token-uri:https://oauth2.googleapis.com/token}") String tokenUri,
+            @Value("${app.mail.api-base-url:https://gmail.googleapis.com}") String apiBaseUrl,
             @Value("${app.frontend-url:http://localhost:3000}") String frontendUrl) {
-        this.apiKey = apiKey;
+        this.clientId = clientId;
+        this.clientSecret = clientSecret;
+        this.refreshToken = refreshToken;
         this.from = from;
         this.frontendUrl = frontendUrl;
-        this.resend = RestClient.builder().baseUrl(baseUrl).build();
+        this.tokenUri = tokenUri;
+        this.http = RestClient.builder().baseUrl(apiBaseUrl).build();
     }
 
-    // Ném exception khi lỗi (thiếu key, 4xx/5xx) — semantics như JavaMailSender cũ:
-    // mail verify bắt buộc phải bắn lên để caller quyết định; notification mail tự nuốt bên dưới.
+    // Ném MailDeliveryException khi thiếu cấu hình hoặc Google từ chối (4xx/5xx) — mail xác thực
+    // và reset password là bắt buộc, caller dựa vào exception để hoàn tác hoặc báo lỗi 502.
     private void send(String to, String subject, String text) {
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException("Chưa cấu hình RESEND_API_KEY - email không được gửi tới " + to);
+        if (clientId.isBlank() || clientSecret.isBlank() || refreshToken.isBlank() || from.isBlank()) {
+            log.error("Thiếu cấu hình Gmail API (GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET/GMAIL_REFRESH_TOKEN/MAIL_FROM)");
+            throw new MailDeliveryException(SEND_FAILED_MESSAGE);
         }
-        resend.post()
-                .uri("/emails")
-                .header("Authorization", "Bearer " + apiKey)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("from", from, "to", new String[]{to}, "subject", subject, "text", text))
-                .retrieve()
-                .toBodilessEntity();
+        try {
+            http.post()
+                    .uri("/gmail/v1/users/me/messages/send")
+                    .header("Authorization", "Bearer " + accessToken())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("raw", buildRawMessage(from, to, subject, text)))
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (MailDeliveryException e) {
+            throw e;
+        } catch (RestClientException e) {
+            throw new MailDeliveryException(SEND_FAILED_MESSAGE, e);
+        }
+    }
+
+    private String accessToken() {
+        long now = System.currentTimeMillis() / 1000;
+        if (accessToken != null && now < accessTokenExpiresAtEpochSecond) {
+            return accessToken;
+        }
+        synchronized (this) {
+            if (accessToken != null && System.currentTimeMillis() / 1000 < accessTokenExpiresAtEpochSecond) {
+                return accessToken;
+            }
+            MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+            form.add("client_id", clientId);
+            form.add("client_secret", clientSecret);
+            form.add("refresh_token", refreshToken);
+            form.add("grant_type", "refresh_token");
+            Map<String, Object> response;
+            try {
+                response = RestClient.builder().build().post()
+                        .uri(tokenUri)
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .body(form)
+                        .retrieve()
+                        .body(Map.class);
+            } catch (RestClientException e) {
+                throw new MailDeliveryException(SEND_FAILED_MESSAGE, e);
+            }
+            if (response == null || !(response.get("access_token") instanceof String token)) {
+                throw new MailDeliveryException(SEND_FAILED_MESSAGE);
+            }
+            accessToken = token;
+            accessTokenExpiresAtEpochSecond = System.currentTimeMillis() / 1000 + TOKEN_LIVE_SECONDS;
+            return accessToken;
+        }
+    }
+
+    static String buildRawMessage(String from, String to, String subject, String text) {
+        String encodedSubject = Base64.getEncoder().encodeToString(subject.getBytes(StandardCharsets.UTF_8));
+        String raw = "From: " + from + "\r\n"
+                + "To: " + to + "\r\n"
+                + "Subject: =?UTF-8?B?" + encodedSubject + "?=\r\n"
+                + "MIME-Version: 1.0\r\n"
+                + "Content-Type: text/plain; charset=UTF-8\r\n"
+                + "\r\n"
+                + text;
+        return Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(raw.getBytes(StandardCharsets.UTF_8));
     }
 
     @Override

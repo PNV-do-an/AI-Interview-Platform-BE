@@ -583,24 +583,23 @@ class PersistenceTest {
     }
 
     @Test
-    void verificationEmailFailureStillPersistsRegistration() {
+    void verificationEmailFailureRollsBackRegistration() {
         String email = "verification-mail-failure@example.test";
         String ip = "203.0.113.18";
         doThrow(new IllegalStateException("Simulated verification email failure"))
                 .when(emailService).sendVerificationEmail(eq(email), eq(FULL_NAME), anyString());
 
-        assertNotNull(registerService.register(email, PASSWORD, FULL_NAME, PHONE, request(ip)));
+        assertThrows(IllegalStateException.class,
+                () -> registerService.register(email, PASSWORD, FULL_NAME, PHONE, request(ip)));
         verify(emailService).sendVerificationEmail(eq(email), eq(FULL_NAME), anyString());
-        // Mail fail -> đăng ký vẫn lưu (count 1) nhưng user CHƯA enabled (chưa verify được)
-        assertFalse(storedUser(email).isEnabled());
-        assertEquals(1L, userRepository.count());
+        // Mail fail -> 502 cho client và @Transactional hoàn tác user: không có tài khoản mồ côi
+        assertEquals(0L, userRepository.count());
         assertEquals(0L, registerAttemptRepository.count());
         assertEquals(0L, loginAttemptRepository.count());
 
         restartContext();
 
-        assertFalse(storedUser(email).isEnabled());
-        assertEquals(1L, userRepository.count());
+        assertEquals(0L, userRepository.count());
         assertEquals(0L, registerAttemptRepository.count());
         assertEquals(0L, loginAttemptRepository.count());
     }

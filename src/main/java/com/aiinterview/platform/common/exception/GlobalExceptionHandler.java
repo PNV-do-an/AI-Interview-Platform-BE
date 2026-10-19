@@ -77,6 +77,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(404).body(error);
     }
 
+    @ExceptionHandler(MailDeliveryException.class)
+    public ResponseEntity<?> handleMailDelivery(MailDeliveryException ex, HttpServletRequest request) {
+        ErrorModel error = new ErrorModel(502, ex.getMessage(), request.getRequestURL().toString(), LocalDateTime.now(),
+                new HashMap<>());
+        return ResponseEntity.status(502).body(error);
+    }
+
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorModel> handleAccessDenied(AccessDeniedException ex, HttpServletRequest request) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();

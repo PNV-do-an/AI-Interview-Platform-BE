@@ -2,6 +2,7 @@ package com.aiinterview.platform.service.impl;
 
 import com.aiinterview.platform.common.exception.EmailAlreadyRegisteredException;
 import com.aiinterview.platform.common.exception.InvalidPasswordException;
+import com.aiinterview.platform.common.exception.MailDeliveryException;
 import com.aiinterview.platform.model.dto.response.RegisterResponse;
 import com.aiinterview.platform.model.entity.RegisterAttempt;
 import com.aiinterview.platform.model.entity.User;
@@ -139,16 +140,17 @@ class RegisterInterfaceImplTest {
     }
 
     @Test
-    void emailSendFailureDoesNotBreakRegistration() {
+    void emailSendFailureBreaksRegistration() {
         noRecentFailures();
         when(userRepository.existsByEmail(EMAIL)).thenReturn(false);
         when(passwordEncoder.encode(GOOD_PASSWORD)).thenReturn("hashed");
-        doThrow(new RuntimeException("smtp down"))
+        doThrow(new MailDeliveryException("Không gửi được email. Vui lòng thử lại hoặc liên hệ hỗ trợ."))
                 .when(emailService).sendVerificationEmail(anyString(), anyString(), anyString());
 
-        RegisterResponse response = registerService.register(EMAIL, GOOD_PASSWORD, "Jane Doe", null, request);
+        MailDeliveryException ex = assertThrows(MailDeliveryException.class,
+                () -> registerService.register(EMAIL, GOOD_PASSWORD, "Jane Doe", null, request));
 
-        assertTrue(response.getMessage().contains("Đăng ký thành công"));
+        assertTrue(ex.getMessage().contains("Không gửi được email"));
         verify(userRepository).save(any(User.class));
     }
 }
