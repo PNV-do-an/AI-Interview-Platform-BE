@@ -3,6 +3,7 @@ package com.aiinterview.platform.service.impl;
 import com.aiinterview.platform.common.exception.EmailAlreadyRegisteredException;
 import com.aiinterview.platform.common.exception.InvalidAccountException;
 import com.aiinterview.platform.common.exception.InvalidPasswordException;
+import com.aiinterview.platform.common.exception.MailDeliveryException;
 import com.aiinterview.platform.model.dto.response.RegisterResponse;
 import com.aiinterview.platform.model.entity.RegisterAttempt;
 import com.aiinterview.platform.model.entity.User;
@@ -87,11 +88,9 @@ public class RegisterInterfaceImpl implements RegisterInterface {
 
         userRepository.save(newUser);
 
-        try {
-            emailService.sendVerificationEmail(email, fullName, verificationToken);
-        } catch (Exception e) {
-            log.warn("Không thể gửi email xác thực tới {}: {}", email, e.getMessage());
-        }
+        // Mail xác thực là bắt buộc: gửi thất bại thì exception lan ra ngoài, @Transactional
+        // hoàn tác user vừa tạo và client nhận 502 thay vì 201 "kiểm tra email" rỗng.
+        emailService.sendVerificationEmail(email, fullName, verificationToken);
 
         return new RegisterResponse("Đăng ký thành công! Vui lòng kiểm tra email và bấm link xác thực trước khi đăng nhập.");
     }
@@ -135,8 +134,13 @@ public class RegisterInterfaceImpl implements RegisterInterface {
 
         try {
             emailService.sendResendVerificationEmail(email, user.getFullName(), newToken);
-        } catch (Exception e) {
-            log.warn("Không thể gửi lại email xác thực tới {}: {}", email, e.getMessage());
+        } catch (MailDeliveryException e) {
+            // Token vừa rotate chưa tới tay người dùng: xóa để không còn link "sống" trong DB,
+            // user có thể bấm gửi lại sau khi lỗi kênh mail được khắc phục.
+            user.setVerificationToken(null);
+            user.setVerificationTokenExpiry(null);
+            userRepository.save(user);
+            throw e;
         }
     }
 }

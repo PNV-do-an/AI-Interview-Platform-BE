@@ -2,6 +2,7 @@ package com.aiinterview.platform.service.impl;
 
 import com.aiinterview.platform.common.exception.InvalidAccountException;
 import com.aiinterview.platform.common.exception.InvalidPasswordException;
+import com.aiinterview.platform.common.exception.MailDeliveryException;
 import com.aiinterview.platform.model.dto.response.PasswordResetResponse;
 import com.aiinterview.platform.model.dto.response.ResetTokenInfoResponse;
 import com.aiinterview.platform.model.entity.PasswordResetAttempt;
@@ -79,8 +80,13 @@ public class PasswordResetServiceImpl implements PasswordResetService {
 
         try {
             emailService.sendResetPasswordEmail(email, user.getFullName(), resetToken);
-        } catch (Exception e) {
-            log.warn("Không thể gửi email reset password tới {}: {}", email, e.getMessage());
+        } catch (MailDeliveryException e) {
+            // vẫn trả GENERIC_MESSAGE để không tố giác email tồn tại, nhưng xóa token để
+            // không để lại link "sống" trong DB mà user không bao giờ nhận được.
+            user.setResetToken(null);
+            user.setResetTokenExpiry(null);
+            userRepository.save(user);
+            log.error("Không thể gửi email reset password tới {}: {}", email, e.getMessage());
         }
 
         return GENERIC_MESSAGE;
