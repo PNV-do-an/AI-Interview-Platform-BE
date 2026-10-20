@@ -194,6 +194,19 @@ Khi đo (mục 7) phải đo trên env đã có credential.
 - Regression hợp đồng mail fail (`/FAIL` bắt Gmail API trả 503) → `POST /register` **502**
   "Không gửi được email...", `SELECT COUNT(*)` user mới = **0** (rollback), log "Gmail API tu choi gui mail".
 
+**Đo 2026-10-20 (build `5a4ac3b`, e2e local: app + MySQL container + fake Gmail API):**
+- `POST /auth/refresh`: token hợp lệ → **200** "Token refreshed"; token **thiếu** (`{}`), token rác
+  (`abc.def.ghi`), token **sai chữ ký**, token **hết hạn** → **401** "Phiên đăng nhập không còn hiệu lực.
+  Vui lòng đăng nhập lại." (trước bản vá, cả bốn case này là **500** "Lỗi hệ thống" — FE interceptor
+  không phân biệt được hết phiên với lỗi server).
+- Luồng ĐẠT chạy lại trên image mới: `POST /register` **201** → mail trong fake Gmail chứa token →
+  `GET /verify` **200** → `POST /login` **200**.
+- Lỗi **đổi access token** (khác lỗi gửi mail): cho `GMAIL_TOKEN_URI` trả 404 (mô phỏng Google
+  từ chối client đã bị thu hồi) và trỏ vào host không resolve được (mô phỏng mất mạng) →
+  `POST /register` **502** + rollback (0 user) kèm log "Khong doi duoc access token tu ..." ghi rõ
+  biến nào cần kiểm tra. Trước bản vá hai case này trả 502 nhưng **log trắng**, không có cách nào
+  phân biệt refresh token hỏng với kênh gửi hỏng.
+
 ### 8. Câu hỏi mở cho anh Huy
 
 - ~~Bật chặn login khi chưa verify email?~~ **ĐÃ CHỐT 2026-10-18: bật** — đưa vào phạm vi
