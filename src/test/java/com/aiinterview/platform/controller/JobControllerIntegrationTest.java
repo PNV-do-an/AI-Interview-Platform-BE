@@ -83,6 +83,8 @@ class JobControllerIntegrationTest {
     @BeforeEach
     void setUp() {
         auditLogRepository.deleteAll();
+        // 004 thêm FK job_moderation_records.job_id -> phải xóa bản ghi duyệt trước tin.
+        jdbcTemplate.execute("delete from job_moderation_records");
         jobRepository.deleteAll();
         userRepository.deleteAll();
 

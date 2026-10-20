@@ -81,6 +81,7 @@ audit `LOCK_USER`.
 | chính mình | 400 "Không thể khóa tài khoản của chính mình" |
 | đã xóa mềm | 404 (hợp đồng chung) |
 | mail fail | 502 + **rollback** (`locked` vẫn `false`, `tokenVersion` không đổi) |
+| target là ADMIN | 400 "Không thể khóa tài khoản quản trị viên" — từ 008, xem §18 |
 
 ## 5. `PATCH /api/v1/admin/users/{id}/unlock`
 
@@ -249,6 +250,45 @@ Body `AdminUpdateProfileRequest`: `{fullName?, email?, phone?}` — tất cả o
   đăng nhập** sang địa chỉ khác ⇒ 400 "Không thể đổi email của chính tài khoản quản trị đang đăng nhập".
 - Body rỗng ⇒ 400 "Không có thông tin nào để cập nhật"; `fullName` chỉ có space ⇒ 400
   "Họ tên không được để trống" (chặn lúc ghi, kiểm tra trước cả rule "body rỗng").
+
+# Bổ sung từ feature 008 (user actions) — 4 endpoint, cùng gate `ROLE_ADMIN` 2 lớp
+
+## 18. `PATCH /api/v1/admin/users/{id}/lock` — body giờ là tùy chọn (008)
+
+Body: `{"reason": "…(≤500)", "notifyUser": true|false}` — **được phép bỏ trống entirely** (giữ hành vi 001).
+- `reason` có giá trị ⇒ audit `LOCK_USER` nối thêm " — Lý do: …".
+- `notifyUser=false` ⇒ **không** gửi `sendAccountLockedEmail`; mặc định (null) ⇒ vẫn gửi.
+- `reason` > 500 ký tự ⇒ 400 "Lý do tối đa 500 ký tự".
+
+| Case mới | Status |
+|---|---|
+| target có `role=ROLE_ADMIN` | 400 "Không thể khóa tài khoản quản trị viên" + audit `succeeded=false` |
+
+## 19. `POST /api/v1/admin/users/bulk-lock`
+
+Body: `{"ids":[1,2,3], "reason":"…", "notifyUser":false}` (`ids` 1..100). Response 200 với
+`data = {requested, succeeded, failed:[{id, message}]}` — **mỗi id một transaction riêng**, id fail
+không làm hỏng id đã thành công. Message lỗi lấy nguyên văn từ rule đơn lẻ (vd mục 18, 404).
+Audit: đúng số id thành công (`LOCK_USER`, `succeeded=true`); id bị chặn vẫn có dòng `succeeded=false`;
+id không tồn tại ⇒ không có dòng audit.
+
+## 20. `POST /api/v1/admin/users/bulk-unlock`
+
+Body: `{"ids":[…]}`.Same envelope; per-id rule "Tài khoản không ở trạng thái bị khóa" ⇒ vào `failed`.
+
+## 21. `PATCH /api/v1/admin/users/bulk-role`
+
+Body: `{"ids":[…], "role":"ROLE_STAFF"}`. Per-id rule của §10 áp dụng nguyên vẹn: tự đổi ⇒ fail
+"Không thể thay đổi vai trò tài khoản của chính mình"; hạ role admin cuối cùng ⇒ fail.
+
+## 22. `POST /api/user/change-password` — **không phải endpoint admin**
+
+`@PreAuthorize("isAuthenticated()")`, body `{"currentPassword":"…","newPassword":"…"}`.
+Thành công: 200, message "Đổi mật khẩu thành công…", **bump `tokenVersion`** ⇒ refresh token cũ 401,
+mật khẩu cũ login 401. Bốn rule mật khẩu mới có message riêng:
+"…tối thiểu 8 ký tự" / "…chữ hoa và một chữ thường" / "…ít nhất một chữ số" / "…ký tự đặc biệt (@#$%^&+=!)" —
+tất cả là 400. Sai mật khẩu hiện tại ⇒ 400 "Mật khẩu hiện tại không đúng". Anonymous ⇒ 401.
+Không gửi mail, không ghi `admin_audit_log` (chủ thể là chính user, không phải admin).
 
 ## Việc phải làm ngoài 11 endpoint trên (thuộc hợp đồng)
 

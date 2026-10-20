@@ -5,11 +5,15 @@ import com.aiinterview.platform.common.response.ApiResponse;
 import com.aiinterview.platform.model.dto.request.AdminInviteUserRequest;
 import com.aiinterview.platform.model.dto.request.AdminUpdateProfileRequest;
 import com.aiinterview.platform.model.dto.request.AuditLogQuery;
+import com.aiinterview.platform.model.dto.request.BulkRoleChangeRequest;
+import com.aiinterview.platform.model.dto.request.BulkUserActionRequest;
 import com.aiinterview.platform.model.dto.request.ChangeRoleRequest;
+import com.aiinterview.platform.model.dto.request.LockAccountRequest;
 import com.aiinterview.platform.model.dto.request.UserStatusRequest;
 import com.aiinterview.platform.model.dto.response.AdminProfileUpdateResponse;
 import com.aiinterview.platform.model.dto.response.AdminUserStatsResponse;
 import com.aiinterview.platform.model.dto.response.AuditLogResponse;
+import com.aiinterview.platform.model.dto.response.BulkUserActionResult;
 import com.aiinterview.platform.model.dto.response.UserDetailResponse;
 import com.aiinterview.platform.model.dto.response.UserSummaryResponse;
 import com.aiinterview.platform.model.enums.AuditAction;
@@ -129,16 +133,46 @@ public class AdminUserController {
         return ResponseEntity.ok(ApiResponse.success(adminUserService.getUserDetail(id)));
     }
 
-    /** PATCH /api/v1/admin/users/{id}/lock */
+    /**
+     * PATCH /api/v1/admin/users/{id}/lock — body is optional: {"reason": "...", "notifyUser": true}.
+     * Without a body the legacy behaviour applies (lock + notification email).
+     */
     @PatchMapping("/users/{id}/lock")
-    public ResponseEntity<ApiResponse<UserDetailResponse>> lockUser(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.success("Tài khoản đã bị khóa", adminUserService.lockUser(id)));
+    public ResponseEntity<ApiResponse<UserDetailResponse>> lockUser(
+            @PathVariable Long id,
+            @Valid @RequestBody(required = false) LockAccountRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Tài khoản đã bị khóa",
+                adminUserService.lockUser(id, request)));
     }
 
     /** PATCH /api/v1/admin/users/{id}/unlock */
     @PatchMapping("/users/{id}/unlock")
     public ResponseEntity<ApiResponse<UserDetailResponse>> unlockUser(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success("Tài khoản đã được mở khóa", adminUserService.unlockUser(id)));
+    }
+
+    /** POST /api/v1/admin/users/bulk-lock body: {"ids": [...], "reason": "...", "notifyUser": true} */
+    @PostMapping("/users/bulk-lock")
+    public ResponseEntity<ApiResponse<BulkUserActionResult>> bulkLock(
+            @Valid @RequestBody BulkUserActionRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Đã xử lý khóa hàng loạt",
+                adminUserService.bulkLock(request)));
+    }
+
+    /** POST /api/v1/admin/users/bulk-unlock body: {"ids": [...]} */
+    @PostMapping("/users/bulk-unlock")
+    public ResponseEntity<ApiResponse<BulkUserActionResult>> bulkUnlock(
+            @Valid @RequestBody BulkUserActionRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Đã xử lý mở khóa hàng loạt",
+                adminUserService.bulkUnlock(request)));
+    }
+
+    /** PATCH /api/v1/admin/users/bulk-role body: {"ids": [...], "role": "ROLE_STAFF"} */
+    @PatchMapping("/users/bulk-role")
+    public ResponseEntity<ApiResponse<BulkUserActionResult>> bulkRole(
+            @Valid @RequestBody BulkRoleChangeRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Đã xử lý đổi vai trò hàng loạt",
+                adminUserService.bulkRole(request)));
     }
 
     /** PATCH /api/v1/admin/users/{id}/status  body: {"enabled": true|false} */

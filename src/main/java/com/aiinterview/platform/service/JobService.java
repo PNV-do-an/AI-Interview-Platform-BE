@@ -3,10 +3,18 @@ package com.aiinterview.platform.service;
 import com.aiinterview.platform.model.dto.request.JobRequest;
 import com.aiinterview.platform.model.dto.request.JobReviewRequest;
 import com.aiinterview.platform.model.dto.response.JobDetailResponse;
+import com.aiinterview.platform.model.dto.response.JobModerationHistoryResponse;
 import com.aiinterview.platform.model.dto.response.JobSummaryResponse;
 import com.aiinterview.platform.model.dto.response.MatchResponse;
+import com.aiinterview.platform.model.dto.response.ModerationHistoryStatsResponse;
+import com.aiinterview.platform.model.dto.response.ModerationJobDetailResponse;
+import com.aiinterview.platform.model.dto.response.ModerationJobResponse;
 import com.aiinterview.platform.model.enums.JobStatus;
+import com.aiinterview.platform.model.enums.ModerationAction;
 import org.springframework.data.domain.Page;
+
+import java.time.LocalDate;
+import java.util.List;
 
 public interface JobService {
 
@@ -28,7 +36,17 @@ public interface JobService {
 
     void deleteJob(Long jobId);
 
-    Page<JobSummaryResponse> adminListJobs(int page, int size, String search);
+    List<MatchResponse> getMatchingCandidates(Long jobId);
 
-    java.util.List<MatchResponse> getMatchingCandidates(Long jobId);
+    // ── moderation console (spec 004) ────────────────────────────────────────
+
+    Page<ModerationJobResponse> moderationQueue(int page, int size, JobStatus status, String search);
+
+    ModerationJobDetailResponse moderationDetail(Long jobId);
+
+    Page<JobModerationHistoryResponse> moderationHistory(int page, int size, ModerationAction decision,
+                                                         LocalDate from, LocalDate to,
+                                                         Long moderatorId, String search);
+
+    ModerationHistoryStatsResponse moderationHistoryStats();
 }

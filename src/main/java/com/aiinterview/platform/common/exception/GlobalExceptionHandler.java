@@ -126,6 +126,14 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(400).body(error);
     }
 
+    /** Settings values violate a business rule (spec 007: block at write with 422 + per-key messages). */
+    @ExceptionHandler(SettingsValidationException.class)
+    public ResponseEntity<?> handleSettingsValidation(SettingsValidationException ex, HttpServletRequest request) {
+        ErrorModel error = new ErrorModel(422, ex.getMessage(), request.getRequestURL().toString(),
+                LocalDateTime.now(), new HashMap<>(ex.getViolations()));
+        return ResponseEntity.status(422).body(error);
+    }
+
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<?> handleNotFound(ResourceNotFoundException ex, HttpServletRequest request) {
         ErrorModel error = new ErrorModel(404, ex.getMessage(), request.getRequestURL().toString(), LocalDateTime.now(),

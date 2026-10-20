@@ -40,4 +40,9 @@ public interface UserRepository {
     long countWithRecentLogin(String search, Role role, LocalDateTime since);
 
     long countByRoleAndDeletedAtIsNull(Role role);
+
+    /** Dashboard: live accounts per role, rows are {@code [Role, Long]} — one pass, no N+1. */
+    List<Object[]> countLiveByRole();
+
+    long countByCreatedAtAfterAndDeletedAtIsNull(LocalDateTime since);
 }
