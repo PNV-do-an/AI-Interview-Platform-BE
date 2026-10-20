@@ -69,19 +69,29 @@ public class EmailServiceImpl implements EmailService {
             log.error("Thiếu cấu hình Gmail API (GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET/GMAIL_REFRESH_TOKEN/MAIL_FROM)");
             throw new MailDeliveryException(SEND_FAILED_MESSAGE);
         }
+        Map<String, Object> accepted;
         try {
-            http.post()
+            accepted = http.post()
                     .uri("/gmail/v1/users/me/messages/send")
                     .header("Authorization", "Bearer " + accessToken())
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(Map.of("raw", buildRawMessage(from, to, subject, text)))
                     .retrieve()
-                    .toBodilessEntity();
+                    .body(Map.class);
         } catch (MailDeliveryException e) {
             throw e;
         } catch (RestClientException e) {
+            log.error("Gmail API tu choi gui mail to={} subject={}", to, subject, e);
             throw new MailDeliveryException(SEND_FAILED_MESSAGE, e);
         }
+        // Bang chung server-side: Gmail tra ve message resource (id/threadId/labelIds). Khong co dong
+        // nay thi khong bao gio tra loi duoc "mail da giao cho Google chua" khi user bao khong thay gi.
+        log.info("Mail da giao cho Gmail API: to={}, messageId={}, threadId={}, labels={}",
+                to, valueOf(accepted, "id"), valueOf(accepted, "threadId"), valueOf(accepted, "labelIds"));
+    }
+
+    private static String valueOf(Map<String, Object> response, String key) {
+        return response == null ? null : String.valueOf(response.get(key));
     }
 
     private String accessToken() {

@@ -60,9 +60,10 @@ public class RegisterInterfaceImpl implements RegisterInterface {
             );
         }
 
-        if (userRepository.existsByEmail(email)) {
+        User existing = userRepository.findByEmail(email).orElse(null);
+        if (existing != null) {
             recordFailedAttempt(ipClient, email);
-            throw new EmailAlreadyRegisteredException("Email đã tồn tại trong hệ thống");
+            throw new EmailAlreadyRegisteredException(conflictMessage(existing));
         }
 
         if (password == null || !PASSWORD_PATTERN.matcher(password).matches()) {
@@ -99,6 +100,19 @@ public class RegisterInterfaceImpl implements RegisterInterface {
         RegisterAttempt failed = new RegisterAttempt(ipClient, email);
         failed.setTimestamp(LocalDateTime.now());
         registerAttemptRepository.save(failed);
+    }
+
+    /**
+     * Email trùng mà chưa xác thực không phải ngõ cụt: tài khoản đã tồn tại, chỉ thiếu link.
+     * Nêu luôn lối thoát để người dùng không bấm đăng ký lại hàng loạt (mỗi lần bấm là một
+     * failed attempt, đủ 5 lần là bị chặn 5 phút).
+     */
+    private static String conflictMessage(User existing) {
+        if (!existing.isEnabled() && existing.getVerificationToken() != null) {
+            return "Email này đã đăng ký nhưng chưa xác thực. Vui lòng kiểm tra hộp thư (kể cả thư mục Spam),"
+                    + " hoặc bấm 'Gửi lại link xác thực'.";
+        }
+        return "Email đã tồn tại trong hệ thống";
     }
 
     @Override

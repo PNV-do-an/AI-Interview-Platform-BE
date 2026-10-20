@@ -20,6 +20,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.util.Optional;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -67,7 +69,7 @@ class RegisterInterfaceImplTest {
     @Test
     void registersDisabledUserAwaitingEmailVerificationWithoutAttemptRow() {
         noRecentFailures();
-        when(userRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.empty());
         when(passwordEncoder.encode(GOOD_PASSWORD)).thenReturn("hashed");
 
         RegisterResponse response = registerService.register(EMAIL, GOOD_PASSWORD, "Jane Doe", null, request);
@@ -87,10 +89,12 @@ class RegisterInterfaceImplTest {
     @Test
     void duplicateEmailIsRejectedWith409ExceptionAndRecordedAsFailedAttempt() {
         noRecentFailures();
-        when(userRepository.existsByEmail(EMAIL)).thenReturn(true);
+        when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.of(
+                User.builder().email(EMAIL).role(Role.ROLE_USER).enabled(true).build()));
 
-        assertThrows(EmailAlreadyRegisteredException.class,
+        EmailAlreadyRegisteredException ex = assertThrows(EmailAlreadyRegisteredException.class,
                 () -> registerService.register(EMAIL, GOOD_PASSWORD, "Jane Doe", null, request));
+        assertEquals("Email đã tồn tại trong hệ thống", ex.getMessage());
 
         verify(userRepository, never()).save(any(User.class));
         verify(emailService, never()).sendVerificationEmail(anyString(), anyString(), anyString());
@@ -102,10 +106,30 @@ class RegisterInterfaceImplTest {
         assertNotNull(attempt.getValue().getTimestamp());
     }
 
+    /**
+     * User bấm đăng ký lại vì tưởng chưa có tài khoản: message phải tự nói lối thoát (kiểm tra
+     * Spam / bấm gửi lại link), không phải chuỗi cụt đẩy họ vào thế bí.
+     */
+    @Test
+    void duplicateUnverifiedEmailPointsToTheVerificationLinkInsteadOfADeadEnd() {
+        noRecentFailures();
+        when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.of(
+                User.builder().email(EMAIL).role(Role.ROLE_USER).enabled(false)
+                        .verificationToken("tok-live").build()));
+
+        EmailAlreadyRegisteredException ex = assertThrows(EmailAlreadyRegisteredException.class,
+                () -> registerService.register(EMAIL, GOOD_PASSWORD, "Jane Doe", null, request));
+
+        assertTrue(ex.getMessage().contains("chưa xác thực"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("Spam"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("Gửi lại link xác thực"), ex.getMessage());
+        verify(userRepository, never()).save(any(User.class));
+    }
+
     @Test
     void weakPasswordIsRecordedAsFailedAttempt() {
         noRecentFailures();
-        when(userRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.empty());
 
         assertThrows(InvalidPasswordException.class,
                 () -> registerService.register(EMAIL, "weakpass", "Jane Doe", null, request));
@@ -142,7 +166,7 @@ class RegisterInterfaceImplTest {
     @Test
     void emailSendFailureBreaksRegistration() {
         noRecentFailures();
-        when(userRepository.existsByEmail(EMAIL)).thenReturn(false);
+        when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.empty());
         when(passwordEncoder.encode(GOOD_PASSWORD)).thenReturn("hashed");
         doThrow(new MailDeliveryException("Không gửi được email. Vui lòng thử lại hoặc liên hệ hỗ trợ."))
                 .when(emailService).sendVerificationEmail(anyString(), anyString(), anyString());

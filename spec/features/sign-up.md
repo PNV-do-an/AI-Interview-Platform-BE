@@ -51,7 +51,7 @@ Người mới tạo tài khoản (form hoặc OAuth Google/GitHub) và vào đ�
 | # | Tình huống | Kết quả mong đợi |
 |---|---|---|
 | 1 | Đăng ký hợp lệ | 201, user `ROLE_USER` enabled, không có dòng `register_attempts` |
-| 2 | Email đã tồn tại | 409, message "Email đã tồn tại trong hệ thống", +1 dòng `register_attempts` |
+| 2 | Email đã tồn tại | 409; email đã verify → "Email đã tồn tại trong hệ thống"; email **chưa** verify (còn `verification_token`) → message chỉ đường "…chưa xác thực… kiểm tra hộp thư (kể cả Spam) hoặc bấm 'Gửi lại link xác thực'". Cả hai nhánh +1 dòng `register_attempts` |
 | 3 | Password yếu (thiếu ký tự đặc biệt) | 401 kèm rule message + 1 dòng attempt (không còn là 400 `detail.password`) |
 | 4 | 5 lần fail cùng email trong 5 phút | lần 6 bị chặn kể cả khi mật khẩu hợp lệ, message "Vui lòng thử lại sau 5 phút", không tạo user |
 | 5 | 10 lần fail cùng IP trong 5 phút | lần 11 chặn IP kể cả email mới + mật khẩu hợp lệ, message "hoạt động bất thường" |
