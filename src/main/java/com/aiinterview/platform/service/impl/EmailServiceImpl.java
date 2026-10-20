@@ -117,9 +117,14 @@ public class EmailServiceImpl implements EmailService {
                         .retrieve()
                         .body(Map.class);
             } catch (RestClientException e) {
+                // Không có dòng này thì mọi đăng ký fail 502 mà log trắng: lỗi đổi token
+                // (refresh token bị thu hồi / sai client) khác hẳn lỗi gửi.
+                log.error("Khong doi duoc access token tu {} - kiem tra GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET/"
+                        + "GMAIL_REFRESH_TOKEN va quyen gmail.send cua token", tokenUri, e);
                 throw new MailDeliveryException(SEND_FAILED_MESSAGE, e);
             }
             if (response == null || !(response.get("access_token") instanceof String token)) {
+                log.error("Google khong tra access_token tu {} (khong log noi dung response)", tokenUri);
                 throw new MailDeliveryException(SEND_FAILED_MESSAGE);
             }
             accessToken = token;

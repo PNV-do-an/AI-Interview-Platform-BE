@@ -25,6 +25,7 @@ import com.aiinterview.platform.service.RegisterInterface;
 import com.aiinterview.platform.service.SsoAuthInterface;
 import com.aiinterview.platform.service.UserService;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -176,7 +177,7 @@ public class AuthController {
     @PostMapping("/refresh")
     public ResponseEntity<ApiResponse<AuthResponse>> refresh(@RequestBody Map<String, String> request) {
         String refreshToken = request.get("refreshToken");
-        Claims claims = JwtUtil.validateRefreshToken(refreshToken);
+        Claims claims = parseRefreshToken(refreshToken);
         String email = claims.getSubject();
         var user = userService.findByEmail(email);
 
@@ -201,6 +202,18 @@ public class AuthController {
                         .build())
                 .build();
         return ResponseEntity.ok(ApiResponse.success("Token refreshed", authResponse));
+    }
+
+    /**
+     * Token thiếu, sai chữ ký hoặc quá hạn là "hết phiên" (401) — FE xoá storage rồi về /login.
+     * Trước đây jjwt ném JwtException/NPE tràn ra ngoài thành 500 "Lỗi hệ thống".
+     */
+    private static Claims parseRefreshToken(String refreshToken) {
+        try {
+            return JwtUtil.validateRefreshToken(refreshToken);
+        } catch (JwtException | IllegalArgumentException e) {
+            throw new InvalidAccountException("Phiên đăng nhập không còn hiệu lực. Vui lòng đăng nhập lại.");
+        }
     }
 
     @GetMapping("/verify")
