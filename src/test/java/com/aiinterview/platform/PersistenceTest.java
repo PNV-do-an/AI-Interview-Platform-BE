@@ -204,6 +204,34 @@ class PersistenceTest {
     }
 
     @Test
+    void expiredWrongPasswordLockRestartsTheCounterInsteadOfReLockingOnFirstMistake() {
+        String email = "login-lock-expired@example.test";
+        String ip = "203.0.113.28";
+        MockHttpServletRequest request = request(ip);
+
+        // Hiện trạng sau khi người dùng đã bị khóa đủ 5 lần rồi hết hạn 15 phút (và các dòng
+        // login_attempts đã nằm ngoài cửa sổ 15 phút — chính nhánh dưới đó chặn): bộ đếm 5
+        // vẫn nằm trên users, lockUntil đã qua.
+        User expiredLock = seedEnabledUser(email);
+        expiredLock.setLoginAttempts(5);
+        expiredLock.setLockUntil(LocalDateTime.now().minusMinutes(1));
+        userRepository.saveAndFlush(expiredLock);
+
+        // Trước bản vá: 5 + 1 >= 5 nên một lần sai duy nhất khóa lại ngay (423), người dùng
+        // không bao giờ thoát được trạng thái khóa nếu chưa kịp đăng nhập thành công.
+        assertThrows(InvalidPasswordException.class,
+                () -> loginService.login(email, "WrongPassword1!", request));
+        User afterMistake = storedUser(email);
+        assertEquals(1, afterMistake.getLoginAttempts());
+        assertNull(afterMistake.getLockUntil());
+
+        assertNotNull(loginService.login(email, PASSWORD, request).getAccessToken());
+        User recovered = storedUser(email);
+        assertEquals(0, recovered.getLoginAttempts());
+        assertNull(recovered.getLockUntil());
+    }
+
+    @Test
     void unknownEmailLoginCommitsFailureDespiteInvalidAccountException() {
         String email = "unknown@example.test";
         String ip = "203.0.113.13";

@@ -73,6 +73,15 @@ public class LoginInterfaceImpl implements LoginInterface {
             );
         }
 
+        // Khóa do nhập sai đã hết hạn 15 phút: phải tính lại từ đầu. Nếu để loginAttempts=5
+        // nằm nguyên thì lần sai kế tiếp (5+1 >= 5) khóa lại ngay lập tức — người dùng chờ
+        // đủ 15 phút vẫn không có cửa nào ngoài đổi mật khẩu.
+        if (user.getLockUntil() != null) {
+            user.setLockUntil(null);
+            user.setLoginAttempts(0);
+            userRepository.save(user);
+        }
+
         long recentFailures = loginAttemptRepository.findByEmailAndSuccessFalseAndTimestampAfter(
                 email, LocalDateTime.now().minusMinutes(15)
         ).size();
