@@ -5,16 +5,25 @@ import com.aiinterview.platform.common.exception.ResourceNotFoundException;
 import com.aiinterview.platform.model.dto.request.JobRequest;
 import com.aiinterview.platform.model.dto.request.JobReviewRequest;
 import com.aiinterview.platform.model.dto.response.JobDetailResponse;
+import com.aiinterview.platform.model.dto.response.JobModerationHistoryResponse;
 import com.aiinterview.platform.model.dto.response.JobSummaryResponse;
 import com.aiinterview.platform.model.dto.response.MatchResponse;
+import com.aiinterview.platform.model.dto.response.ModerationHistoryStatsResponse;
+import com.aiinterview.platform.model.dto.response.ModerationJobDetailResponse;
+import com.aiinterview.platform.model.dto.response.ModerationJobResponse;
+import com.aiinterview.platform.model.dto.response.ModerationRecordResponse;
 import com.aiinterview.platform.model.entity.AdminAuditLog;
 import com.aiinterview.platform.model.entity.JobDescription;
+import com.aiinterview.platform.model.entity.JobModerationRecord;
 import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.enums.AuditAction;
 import com.aiinterview.platform.model.enums.JobStatus;
+import com.aiinterview.platform.model.enums.ModerationAction;
+import com.aiinterview.platform.model.enums.ModerationActorRole;
 import com.aiinterview.platform.model.enums.Role;
 import com.aiinterview.platform.model.repository.AdminAuditLogRepository;
 import com.aiinterview.platform.model.repository.JobDescriptionRepository;
+import com.aiinterview.platform.model.repository.JobModerationRecordRepository;
 import com.aiinterview.platform.model.repository.UserRepository;
 import com.aiinterview.platform.security.utils.SecurityUtils;
 import com.aiinterview.platform.service.JobService;
@@ -27,6 +36,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -39,6 +50,7 @@ public class JobServiceImpl implements JobService {
     private final UserRepository userRepository;
     private final MatchingService matchingService;
     private final AdminAuditLogRepository auditLogRepository;
+    private final JobModerationRecordRepository moderationRecordRepository;
 
     @Override
     public Page<JobSummaryResponse> searchJobs(int page, int size, String search) {
@@ -114,8 +126,18 @@ public class JobServiceImpl implements JobService {
         if (job.getStatus() != JobStatus.DRAFT) {
             throw new BadRequestException("Chỉ bản nháp mới gửi duyệt được");
         }
+        LocalDateTime submittedAt = LocalDateTime.now();
         job.setStatus(JobStatus.PENDING_APPROVAL);
-        return JobDetailResponse.from(jobRepository.save(job));
+        job.setSubmittedAt(submittedAt);
+        job = jobRepository.save(job);
+        boolean resubmitted = moderationRecordRepository.existsByJobIdAndAction(jobId, ModerationAction.REJECTED);
+        moderationRecordRepository.save(JobModerationRecord.builder()
+                .job(job)
+                .actor(job.getEmployer())
+                .actorRole(ModerationActorRole.EMPLOYER)
+                .action(resubmitted ? ModerationAction.RESUBMITTED : ModerationAction.SUBMITTED)
+                .build());
+        return JobDetailResponse.from(job);
     }
 
     @Override
@@ -130,17 +152,36 @@ public class JobServiceImpl implements JobService {
         if (!approved && (request.getReason() == null || request.getReason().isBlank())) {
             throw new BadRequestException("Vui lòng nêu lý do từ chối");
         }
+        LocalDateTime decidedAt = LocalDateTime.now();
+        // Captured before the reject branch clears it, so a REJECTED row still carries its wait time.
+        LocalDateTime submittedAt = job.getSubmittedAt();
         AuditAction action;
+        ModerationAction moderationAction;
+        String note = null;
         if (approved) {
             job.setStatus(JobStatus.OPEN);
             job.setReviewNote(null);
             action = AuditAction.APPROVE_JOB;
+            moderationAction = ModerationAction.APPROVED;
         } else {
             job.setStatus(JobStatus.DRAFT);
             job.setReviewNote(request.getReason().trim());
+            // The draft must be submitted again, so the queue clock restarts from the resubmit.
+            job.setSubmittedAt(null);
             action = AuditAction.REJECT_JOB;
+            moderationAction = ModerationAction.REJECTED;
+            note = request.getReason().trim();
         }
-        jobRepository.save(job);
+        job.setDecidedAt(decidedAt);
+        job = jobRepository.save(job);
+        moderationRecordRepository.save(JobModerationRecord.builder()
+                .job(job)
+                .actor(reviewer)
+                .actorRole(toActorRole(reviewer))
+                .action(moderationAction)
+                .note(note)
+                .processingSeconds(processingSeconds(submittedAt, decidedAt))
+                .build());
         String detail = "job #" + job.getId() + ": " + job.getTitle()
                 + (approved ? "" : " — Lý do: " + job.getReviewNote());
         auditLogRepository.save(AdminAuditLog.builder()
@@ -161,15 +202,87 @@ public class JobServiceImpl implements JobService {
         jobRepository.save(job);
     }
 
+    // ── moderation console (spec 004) ────────────────────────────────────────
+
     @Override
-    public Page<JobSummaryResponse> adminListJobs(int page, int size, String search) {
-        User admin = SecurityUtils.getCurrentUser(userRepository);
-        if (admin.getRole() != Role.ROLE_ADMIN && admin.getRole() != Role.ROLE_STAFF) {
-            throw new BadRequestException("Không có quyền truy cập");
+    public Page<ModerationJobResponse> moderationQueue(int page, int size, JobStatus status, String search) {
+        JobStatus effective = status == null ? JobStatus.PENDING_APPROVAL : status;
+        PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        return jobRepository.searchModerationQueue(effective, escapeSearch(search), pageable)
+                .map(ModerationJobResponse::from);
+    }
+
+    @Override
+    public ModerationJobDetailResponse moderationDetail(Long jobId) {
+        JobDescription job = findJobOrThrow(jobId);
+        List<ModerationRecordResponse> timeline = moderationRecordRepository
+                .findByJobIdOrderByCreatedAtDesc(jobId).stream()
+                .map(ModerationRecordResponse::from)
+                .toList();
+        return ModerationJobDetailResponse.builder()
+                .job(JobDetailResponse.from(job))
+                .submittedAt(job.getSubmittedAt())
+                .decidedAt(job.getDecidedAt())
+                .aiSafetyScore(job.getAiSafetyScore())
+                .timeline(timeline)
+                .build();
+    }
+
+    @Override
+    public Page<JobModerationHistoryResponse> moderationHistory(int page, int size, ModerationAction decision,
+                                                                LocalDate from, LocalDate to,
+                                                                Long moderatorId, String search) {
+        if (decision != null && decision != ModerationAction.APPROVED && decision != ModerationAction.REJECTED) {
+            throw new BadRequestException("Lịch sử chỉ có hai loại quyết định: APPROVED hoặc REJECTED");
+        }
+        LocalDateTime fromTime = from == null ? null : from.atStartOfDay();
+        LocalDateTime toTime = to == null ? null : to.atTime(23, 59, 59);
+        if (fromTime != null && toTime != null && fromTime.isAfter(toTime)) {
+            throw new BadRequestException("from không được lớn hơn to");
         }
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        String searchParam = (search != null && !search.isBlank()) ? search.trim() : null;
-        return jobRepository.searchAllJobs(searchParam, pageable).map(JobSummaryResponse::from);
+        return moderationRecordRepository
+                .searchDecisions(decision, fromTime, toTime, moderatorId, escapeSearch(search), pageable)
+                .map(JobModerationHistoryResponse::from);
+    }
+
+    @Override
+    public ModerationHistoryStatsResponse moderationHistoryStats() {
+        long approved = moderationRecordRepository.countByAction(ModerationAction.APPROVED);
+        long rejected = moderationRecordRepository.countByAction(ModerationAction.REJECTED);
+        return new ModerationHistoryStatsResponse(approved + rejected, approved, rejected,
+                moderationRecordRepository.avgProcessingSeconds());
+    }
+
+    private static ModerationActorRole toActorRole(User user) {
+        if (user.getRole() == Role.ROLE_ADMIN) {
+            return ModerationActorRole.ADMIN;
+        }
+        if (user.getRole() == Role.ROLE_STAFF) {
+            return ModerationActorRole.STAFF;
+        }
+        return ModerationActorRole.EMPLOYER;
+    }
+
+    /** Seconds between submit and decision; negative or missing clocks are treated as unknown. */
+    private static Long processingSeconds(LocalDateTime submittedAt, LocalDateTime decidedAt) {
+        if (submittedAt == null) {
+            return null;
+        }
+        long seconds = Duration.between(submittedAt, decidedAt).getSeconds();
+        return seconds < 0 ? null : seconds;
+    }
+
+    /** Same LIKE-escaping rule as the admin user list, so "%" cannot scan the whole table. */
+    private static String escapeSearch(String search) {
+        if (search == null || search.isBlank()) {
+            return null;
+        }
+        String trimmed = search.trim();
+        if (trimmed.length() > 100) {
+            throw new BadRequestException("Từ khóa tìm kiếm tối đa 100 ký tự");
+        }
+        return trimmed.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
     @Override

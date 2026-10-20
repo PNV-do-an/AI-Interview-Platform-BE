@@ -24,4 +24,13 @@ public interface LoginAttemptRepository extends JpaRepository<LoginAttempt, Long
         GROUP BY la.email
         """)
     List<Object[]> findLastSuccessByEmailIn(@Param("emails") Collection<String> emails);
+
+    long countBySuccessTrueAndTimestampAfter(LocalDateTime since);
+
+    long countBySuccessFalseAndTimestampAfter(LocalDateTime since);
+
+    /** Distinct emails with a successful login in the window — the "loginsInPeriod" KPI (002 C-1). */
+    @Query("SELECT COUNT(DISTINCT la.email) FROM LoginAttempt la "
+            + "WHERE la.success = true AND la.timestamp >= :since")
+    long countDistinctSuccessEmailsSince(@Param("since") LocalDateTime since);
 }

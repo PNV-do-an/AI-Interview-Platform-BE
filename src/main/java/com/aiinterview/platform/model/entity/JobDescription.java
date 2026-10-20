@@ -85,6 +85,15 @@ public class JobDescription {
     @Column(columnDefinition = "TEXT")
     private String reviewNote;
 
+    /** Set when the employer submits for review; cleared again when the job is rejected. */
+    private LocalDateTime submittedAt;
+
+    /** Set when an admin/staff approves or rejects. */
+    private LocalDateTime decidedAt;
+
+    /** AI pre-screening result placeholder — stored only, no engine writes it yet (spec 004 FR-005). */
+    private Integer aiSafetyScore;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @Builder.Default

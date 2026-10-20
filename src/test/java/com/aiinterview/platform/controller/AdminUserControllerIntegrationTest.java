@@ -1237,6 +1237,189 @@ class AdminUserControllerIntegrationTest {
                 .andExpect(jsonPath("$.message").value(containsString("users/deleted")));
     }
 
+    // ==================== 008: khóa có lý do, thao tác hàng loạt, phân quyền (AC-1..AC-6) ====
+
+    @Test
+    @WithMockUser(username = "admin@example.com", roles = "ADMIN")
+    @DisplayName("008 AC-1: lock kèm reason + notifyUser=false ⇒ audit ghi lý do, mail không đi, phiên chết")
+    void test008_LockWithReasonSuppressesMail() throws Exception {
+        int versionBefore = userRepository.findById(testUser.getId()).orElseThrow().getTokenVersion();
+
+        mockMvc.perform(patch("/api/v1/admin/users/{id}/lock", testUser.getId())
+                        .with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"vi pham quy dinh\",\"notifyUser\":false}"))
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.locked").value(true))
+                .andExpect(jsonPath("$.data.status").value("LOCKED"));
+
+        User after = userRepository.findById(testUser.getId()).orElseThrow();
+        assertTrue(after.isLocked());
+        assertEquals(versionBefore + 1, after.getTokenVersion(), "tokenVersion phải tăng để giết phiên");
+        verify(emailService, never()).sendAccountLockedEmail(anyString(), anyString());
+
+        var rows = auditLogRepository.findAll();
+        assertEquals(1, rows.size());
+        assertTrue(rows.get(0).getDetail().contains("vi pham quy dinh"), rows.get(0).getDetail());
+    }
+
+    @Test
+    @WithMockUser(username = "admin@example.com", roles = "ADMIN")
+    @DisplayName("008 AC-2: lock không body ⇒ hành vi 001 nguyên vẹn, mail vẫn gửi")
+    void test008_LockWithoutBodyStillNotifies() throws Exception {
+        mockMvc.perform(patch("/api/v1/admin/users/{id}/lock", testUser.getId())
+                        .with(csrf()))
+                .andExpect(status().isOk());
+
+        verify(emailService).sendAccountLockedEmail(testUser.getEmail(), testUser.getFullName());
+        var rows = auditLogRepository.findAll();
+        assertEquals(1, rows.size());
+        assertFalse(rows.get(0).getDetail().contains("Lý do"), rows.get(0).getDetail());
+    }
+
+    @Test
+    @WithMockUser(username = "admin@example.com", roles = "ADMIN")
+    @DisplayName("008 AC-3: không khóa được tài khoản ADMIN; lời từ chối vẫn vào audit")
+    void test008_LockAdminTargetRejected() throws Exception {
+        User otherAdmin = persistMember("admin2@example.com", "Admin Hai", Role.ROLE_ADMIN,
+                true, false, null);
+
+        mockMvc.perform(patch("/api/v1/admin/users/{id}/lock", otherAdmin.getId())
+                        .with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"x\"}"))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Không thể khóa tài khoản quản trị viên"));
+
+        assertFalse(userRepository.findById(otherAdmin.getId()).orElseThrow().isLocked());
+        var rows = auditLogRepository.findAll();
+        assertEquals(1, rows.size());
+        assertFalse(rows.get(0).isSucceeded(), "attempt bị chặn phải được audit với succeeded=false");
+    }
+
+    @Test
+    @WithMockUser(username = "admin@example.com", roles = "ADMIN")
+    @DisplayName("008 AC-3: bulk-lock [user, admin, id-lạ] ⇒ succeeded=1, failed=2 riêng từng id")
+    void test008_BulkLockReportsPerId() throws Exception {
+        User otherAdmin = persistMember("admin2@example.com", "Admin Hai", Role.ROLE_ADMIN,
+                true, false, null);
+
+        mockMvc.perform(post("/api/v1/admin/users/bulk-lock").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[" + testUser.getId() + "," + otherAdmin.getId() + ",999999],"
+                                + "\"reason\":\"rong cue\",\"notifyUser\":false}"))
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.requested").value(3))
+                .andExpect(jsonPath("$.data.succeeded").value(1))
+                .andExpect(jsonPath("$.data.failed.length()").value(2))
+                .andExpect(jsonPath("$.data.failed[0].id").value(otherAdmin.getId()))
+                .andExpect(jsonPath("$.data.failed[0].message").value("Không thể khóa tài khoản quản trị viên"))
+                .andExpect(jsonPath("$.data.failed[1].id").value(999999))
+                .andExpect(jsonPath("$.data.failed[1].message").isNotEmpty());
+
+        assertTrue(userRepository.findById(testUser.getId()).orElseThrow().isLocked());
+        verify(emailService, never()).sendAccountLockedEmail(anyString(), anyString());
+        assertEquals(1L, auditLogRepository.findAll().stream().filter(row -> row.isSucceeded()).count(),
+                "chỉ id thành công mới có dòng audit thành công");
+    }
+
+    @Test
+    @WithMockUser(username = "admin@example.com", roles = "ADMIN")
+    @DisplayName("008: bulk-unlock mở hàng loạt, id chưa khóa báo lỗi riêng, mail chỉ gửi cho id thành công")
+    void test008_BulkUnlock() throws Exception {
+        testUser.setLocked(true);
+        userRepository.save(testUser);
+        User other = persistMember("locked2@example.com", "Locked Two", Role.ROLE_USER, true, true, null);
+
+        mockMvc.perform(post("/api/v1/admin/users/bulk-unlock").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[" + testUser.getId() + "," + other.getId() + ","
+                                + adminUser.getId() + "]}"))
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.requested").value(3))
+                .andExpect(jsonPath("$.data.succeeded").value(2))
+                .andExpect(jsonPath("$.data.failed[0].id").value(adminUser.getId()))
+                .andExpect(jsonPath("$.data.failed[0].message").value("Tài khoản không ở trạng thái bị khóa"));
+
+        assertFalse(userRepository.findById(testUser.getId()).orElseThrow().isLocked());
+        assertFalse(userRepository.findById(other.getId()).orElseThrow().isLocked());
+        verify(emailService).sendAccountUnlockedEmail(testUser.getEmail(), testUser.getFullName());
+        verify(emailService).sendAccountUnlockedEmail(other.getEmail(), other.getFullName());
+        verify(emailService, never()).sendAccountUnlockedEmail(eq(adminUser.getEmail()), anyString());
+    }
+
+    @Test
+    @WithMockUser(username = "admin@example.com", roles = "ADMIN")
+    @DisplayName("008 AC-4: bulk-role [self, user] ⇒ self fail, user đổi được")
+    void test008_BulkRole() throws Exception {
+        mockMvc.perform(patch("/api/v1/admin/users/bulk-role").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[" + adminUser.getId() + "," + testUser.getId()
+                                + "],\"role\":\"ROLE_STAFF\"}"))
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.requested").value(2))
+                .andExpect(jsonPath("$.data.succeeded").value(1))
+                .andExpect(jsonPath("$.data.failed[0].id").value(adminUser.getId()))
+                .andExpect(jsonPath("$.data.failed[0].message").value(containsString("chính mình")));
+
+        assertEquals(Role.ROLE_STAFF, userRepository.findById(testUser.getId()).orElseThrow().getRole());
+    }
+
+    @Test
+    @WithMockUser(username = "admin@example.com", roles = "ADMIN")
+    @DisplayName("008 AC-4/AC-6: 101 ids ⇒ 400 nêu trần 100; ids rỗng ⇒ 400; role lạ ⇒ 400")
+    void test008_BulkLimitsAndBadInput() throws Exception {
+        StringBuilder many = new StringBuilder("1");
+        for (int i = 1; i < 101; i++) {
+            many.append(",1");
+        }
+
+        mockMvc.perform(post("/api/v1/admin/users/bulk-lock").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[" + many + "]}"))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string(containsString("100")));
+
+        mockMvc.perform(post("/api/v1/admin/users/bulk-lock").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"ids\":[]}"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(patch("/api/v1/admin/users/bulk-role").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[" + testUser.getId() + "],\"role\":\"ROLE_FOO\"}"))
+                .andExpect(status().isBadRequest());
+
+        // reason quá dài cũng bị chặn lúc ghi.
+        mockMvc.perform(post("/api/v1/admin/users/bulk-lock").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[" + testUser.getId() + "],\"reason\":\"" + "d".repeat(501) + "\"}"))
+                .andExpect(status().isBadRequest());
+
+        assertEquals(0, auditLogRepository.count(), "request bị chặn không được để lại audit thành công");
+        assertFalse(userRepository.findById(testUser.getId()).orElseThrow().isLocked());
+    }
+
+    @Test
+    @DisplayName("008 AC-6: anonymous ⇒ 401, STAFF ⇒ 403 trên 4 endpoint mới")
+    void test008_NewEndpointsGuards() throws Exception {
+        List<java.util.function.Supplier<MockHttpServletRequestBuilder>> calls = List.of(
+                () -> patch("/api/v1/admin/users/" + testUser.getId() + "/lock"),
+                () -> post("/api/v1/admin/users/bulk-lock"),
+                () -> post("/api/v1/admin/users/bulk-unlock"),
+                () -> patch("/api/v1/admin/users/bulk-role"));
+
+        for (var call : calls) {
+            mockMvc.perform(call.get().with(csrf()))
+                    .andExpect(status().isUnauthorized());
+            mockMvc.perform(withAdmin(call.get(), false))
+                    .andExpect(status().isForbidden());
+        }
+        verify(emailService, never()).sendAccountLockedEmail(anyString(), anyString());
+    }
+
     // ==================== 002 helpers ====================
 
     private User persistMember(String email, String fullName, Role role, boolean enabled,

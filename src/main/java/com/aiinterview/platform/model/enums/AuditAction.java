@@ -17,5 +17,6 @@ public enum AuditAction {
     UPDATE_PROFILE,
     EXPORT_USERS,
     APPROVE_JOB,
-    REJECT_JOB
+    REJECT_JOB,
+    UPDATE_SETTINGS
 }

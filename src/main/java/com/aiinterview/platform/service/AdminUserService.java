@@ -3,9 +3,13 @@ package com.aiinterview.platform.service;
 import com.aiinterview.platform.model.dto.request.AdminInviteUserRequest;
 import com.aiinterview.platform.model.dto.request.AdminUpdateProfileRequest;
 import com.aiinterview.platform.model.dto.request.AuditLogQuery;
+import com.aiinterview.platform.model.dto.request.BulkRoleChangeRequest;
+import com.aiinterview.platform.model.dto.request.BulkUserActionRequest;
+import com.aiinterview.platform.model.dto.request.LockAccountRequest;
 import com.aiinterview.platform.model.dto.response.AdminProfileUpdateResponse;
 import com.aiinterview.platform.model.dto.response.AdminUserStatsResponse;
 import com.aiinterview.platform.model.dto.response.AuditLogResponse;
+import com.aiinterview.platform.model.dto.response.BulkUserActionResult;
 import com.aiinterview.platform.model.dto.response.UserDetailResponse;
 import com.aiinterview.platform.model.dto.response.UserSummaryResponse;
 import com.aiinterview.platform.model.enums.Role;
@@ -25,9 +29,19 @@ public interface AdminUserService {
     /** Works for soft-deleted accounts too (read-only view before restoring). */
     UserDetailResponse getUserDetail(Long userId);
 
-    UserDetailResponse lockUser(Long targetUserId);
+    /**
+     * {@code request} is optional: null keeps the pre-008 behaviour (always notify).
+     * Locking an ADMIN-role account is rejected (spec 008 FR-002).
+     */
+    UserDetailResponse lockUser(Long targetUserId, LockAccountRequest request);
 
     UserDetailResponse unlockUser(Long targetUserId);
+
+    BulkUserActionResult bulkLock(BulkUserActionRequest request);
+
+    BulkUserActionResult bulkUnlock(BulkUserActionRequest request);
+
+    BulkUserActionResult bulkRole(BulkRoleChangeRequest request);
 
     UserDetailResponse setUserEnabled(Long targetUserId, boolean enabled);
 

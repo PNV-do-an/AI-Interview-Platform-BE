@@ -131,4 +131,11 @@ public interface JpaUserRepository extends JpaRepository<User, Long>, UserReposi
 
     @Override
     long countByRoleAndDeletedAtIsNull(Role role);
+
+    @Override
+    @Query("SELECT u.role, COUNT(u.id) FROM User u WHERE u.deletedAt IS NULL GROUP BY u.role")
+    List<Object[]> countLiveByRole();
+
+    @Override
+    long countByCreatedAtAfterAndDeletedAtIsNull(LocalDateTime since);
 }

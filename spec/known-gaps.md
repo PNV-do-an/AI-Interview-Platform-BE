@@ -127,6 +127,28 @@ Mỗi mục ghi cách kiểm chứng. "Đã đo" = tự chạy; "agent báo" = g
 - **`REQ-2024-884` không có cột riêng**: FE tự dựng `REQ-{năm}-{id}` từ `id` + `createdAt`.
 - Hạn mức gói (`jobPostLimit`) vẫn **không** bị chặn khi tạo tin (giữ nguyên như trước).
 
+## Admin console 004–008 — điểm còn mở (2026-10-20, `specs/004..008-admin-*/`)
+
+- **Danh sách "phiên đang hoạt động" không làm được** với JWT stateless: BE không lưu session, chỉ có
+  `login_attempts` (ai đăng nhập lúc nào, thành công hay fail). Muốn hiện "đang online" phải thêm bảng
+  session — chưa dựng chỉ để điền một ô UI.
+- **Đổi mật khẩu không gửi mail, không ghi `admin_audit_log`**: đó là hành động của chính user
+  (`POST /api/user/change-password`), không phải thao tác admin. Phiên thu hồi bằng `tokenVersion++`,
+  user biết qua lần refresh kế tiếp bị 401.
+- **`ai_safety_score` chỉ là cột lưu, không có giá trị**: chưa có AI engine nào ghi vào. FE phải ẩn ô
+  "điểm an toàn AI", đừng hiển thị 0.
+- **System settings chỉ lưu + chặn lúc ghi (422)**, MockInterview chưa đọc lại: đổi
+  `ai.defaultQuestionCount` không làm số câu hỏi của buổi mock thực tế thay đổi cho tới khi có người nối.
+- **Ma trận RBAC là bảng tĩnh, chỉ đọc**: quyền thật do `JwtSecurityConfig` (`/api/v1/admin/**` →
+  ROLE_ADMIN) và `@PreAuthorize` từng endpoint quyết định. Thêm/bớt ô trong matrix **không** đổi hành
+  vi thật — test 006 đối chiếu 6 probe HTTP thật với từng ô tương ứng.
+- **Dashboard chỉ có số đo được**: không biểu đồ theo tuần/tháng, không phân bố địa lý, không
+  "activation rate" kiểu mockup. `avgOverallScore` trả `null` khi chưa có buổi nào có điểm, không gán 0.
+- **`processingSeconds` tính và lưu lúc ghi** thay vì suy ra khi đọc: nhánh từ chối xóa `submittedAt`
+  trước khi kịp tính, nếu tính lúc đọc thì dòng REJECTED luôn thiếu thời gian chờ.
+- **`search` không escape `%`/`_`** (JPQL LIKE không `ESCAPE`): gõ `%` vào ô tìm kiếm trả kết quả rỗng
+  thay vì khớp ký tự `%` trong tiêu đề. Cần tìm cả dấu `%` thì thêm `ESCAPE '\'`.
+
 ## Quyết định đã chốt (để khỏi hỏi lại)
 
 - Phạm vi: UI bám từng mockup Stitch, không tự thiết kế theo spec; luồng ứng viên làm trước.

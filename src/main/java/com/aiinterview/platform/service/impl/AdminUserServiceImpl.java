@@ -6,9 +6,13 @@ import com.aiinterview.platform.common.exception.ResourceNotFoundException;
 import com.aiinterview.platform.model.dto.request.AdminInviteUserRequest;
 import com.aiinterview.platform.model.dto.request.AdminUpdateProfileRequest;
 import com.aiinterview.platform.model.dto.request.AuditLogQuery;
+import com.aiinterview.platform.model.dto.request.BulkRoleChangeRequest;
+import com.aiinterview.platform.model.dto.request.BulkUserActionRequest;
+import com.aiinterview.platform.model.dto.request.LockAccountRequest;
 import com.aiinterview.platform.model.dto.response.AdminProfileUpdateResponse;
 import com.aiinterview.platform.model.dto.response.AdminUserStatsResponse;
 import com.aiinterview.platform.model.dto.response.AuditLogResponse;
+import com.aiinterview.platform.model.dto.response.BulkUserActionResult;
 import com.aiinterview.platform.model.dto.response.UserDetailResponse;
 import com.aiinterview.platform.model.dto.response.UserSummaryResponse;
 import com.aiinterview.platform.model.entity.AdminAuditLog;
@@ -23,6 +27,7 @@ import com.aiinterview.platform.service.AdminUserService;
 import com.aiinterview.platform.service.EmailService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -66,6 +71,8 @@ public class AdminUserServiceImpl implements AdminUserService {
     private final EmailService emailService;
     private final AdminAuditWriter auditWriter;
     private final PasswordEncoder passwordEncoder;
+    /** Self-proxy so each bulk id runs in its own transaction (one bad id never poisons the rest). */
+    private final ObjectProvider<AdminUserService> selfProvider;
 
     // ── reads ────────────────────────────────────────────────────────────────
 
@@ -136,23 +143,89 @@ public class AdminUserServiceImpl implements AdminUserService {
 
     @Override
     @Transactional
-    public UserDetailResponse lockUser(Long targetUserId) {
+    public UserDetailResponse lockUser(Long targetUserId, LockAccountRequest request) {
         User admin = requireAdmin();
+        String reason = normalizedReason(request == null ? null : request.getReason());
+        boolean notify = request == null || request.shouldNotify();
         return attempt(admin, targetUserId, AuditAction.LOCK_USER, () -> {
             User target = findLiveUserOrThrow(targetUserId);
             if (target.isLocked()) {
                 throw new BadRequestException("Tài khoản đã bị khóa");
             }
             rejectSelfAction(admin, targetUserId, "khóa");
+            rejectAdminTarget(target);
             target.setLocked(true);
             target.setLockedAt(LocalDateTime.now());
             target.setTokenVersion(target.getTokenVersion() + 1);
             userRepository.save(target);
-            saveAuditLog(admin, targetUserId, AuditAction.LOCK_USER,
-                    "Khóa tài khoản: " + target.getEmail());
-            emailService.sendAccountLockedEmail(target.getEmail(), target.getFullName());
+            String detail = "Khóa tài khoản: " + target.getEmail()
+                    + (reason != null ? " — Lý do: " + reason : "");
+            saveAuditLog(admin, targetUserId, AuditAction.LOCK_USER, detail);
+            if (notify) {
+                emailService.sendAccountLockedEmail(target.getEmail(), target.getFullName());
+            }
             return UserDetailResponse.from(target);
         });
+    }
+
+    @Override
+    public BulkUserActionResult bulkLock(BulkUserActionRequest request) {
+        requireAdmin();
+        LockAccountRequest lockRequest = new LockAccountRequest();
+        lockRequest.setReason(request.getReason());
+        lockRequest.setNotifyUser(request.shouldNotify());
+        return runBulk(request.getIds(), id -> {
+            LockAccountRequest perId = new LockAccountRequest();
+            perId.setReason(lockRequest.getReason());
+            perId.setNotifyUser(lockRequest.shouldNotify());
+            return selfProvider.getObject().lockUser(id, perId);
+        });
+    }
+
+    @Override
+    public BulkUserActionResult bulkUnlock(BulkUserActionRequest request) {
+        requireAdmin();
+        return runBulk(request.getIds(), id -> selfProvider.getObject().unlockUser(id));
+    }
+
+    @Override
+    public BulkUserActionResult bulkRole(BulkRoleChangeRequest request) {
+        requireAdmin();
+        return runBulk(request.getIds(), id -> selfProvider.getObject().changeRole(id, request.getRole()));
+    }
+
+    /** Aggregates per-id results; each id goes through the transactional proxy, so one
+     *  rejected id leaves the others untouched (spec 008 D1). */
+    private BulkUserActionResult runBulk(List<Long> ids, java.util.function.Function<Long, UserDetailResponse> action) {
+        List<BulkUserActionResult.FailedItem> failed = new java.util.ArrayList<>();
+        int succeeded = 0;
+        for (Long id : ids) {
+            try {
+                action.apply(id);
+                succeeded++;
+            } catch (BadRequestException | ResourceNotFoundException e) {
+                failed.add(new BulkUserActionResult.FailedItem(id, e.getMessage()));
+            }
+        }
+        return new BulkUserActionResult(ids.size(), succeeded, failed);
+    }
+
+    private static String normalizedReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            return null;
+        }
+        String trimmed = reason.trim();
+        if (trimmed.length() > 500) {
+            throw new BadRequestException("Lý do tối đa 500 ký tự");
+        }
+        return trimmed;
+    }
+
+    /** Mockup rule "Không thể khóa Super Admin": admin accounts are never lockable. */
+    private void rejectAdminTarget(User target) {
+        if (target.getRole() == Role.ROLE_ADMIN) {
+            throw new BadRequestException("Không thể khóa tài khoản quản trị viên");
+        }
     }
 
     @Override
