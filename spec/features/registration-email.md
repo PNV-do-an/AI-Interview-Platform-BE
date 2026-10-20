@@ -176,13 +176,23 @@ Khi đo (mục 7) phải đo trên env đã có credential.
 - Trước đó cùng ngày (bản SMTP): e2e đủ 7 bước register→401 login→verify→200 login→token dùng lại 401
   (`enabled=0`, token UUID, expiry 24h) — hành vi gate không đổi sau refactor.
 
-Cần đo khi có key Resend thật (bước còn lại của plan):
-- [ ] `POST /register` → 201 và **inbox nhận mail thật**, trong DB user `enabled=0` còn token.
-- [ ] `POST /login` ngay sau register → **401** "Tài khoản chưa được kích hoạt...".
-- [ ] Mở link `FRONTEND_URL/verify?token=` → 200; `POST /login` lại → **200** vào được app.
-- [ ] `POST /resend-verification` cho user chưa verify → mail thứ hai tới inbox.
-- [ ] `mvn -B clean test` xanh sau khi đảo assertion mục 5 bước 4.
-- [ ] Ghi số đo vào mục này (thời điểm, môi trường, kết quả từng bước).
+Đã đo (kênh Gmail API, staging `aiinterview-vn.vercel.app` build `f773246`, 2026-10-19):
+- [x] `POST /register` → 201 và **inbox nhận mail thật** (hộp thư người lạ dựng qua mail.tm), user `enabled=0` còn token.
+- [x] `POST /login` ngay sau register → **401** "Tài khoản chưa được kích hoạt...".
+- [x] Mở link `FRONTEND_URL/verify?token=` → 200; `POST /login` lại → **200** vào được app.
+- [x] `POST /resend-verification` cho user chưa verify → mail thứ hai tới inbox (token cũ hỏng, token mới chạy).
+- [x] `mvn -B test` xanh (102/102, gồm Testcontainers chạy được trên máy local).
+
+**Đo 2026-10-20 (build `639997f`, e2e local: app + MySQL container + fake Gmail API, không đụng hộp thư thật):**
+- `POST /register` → **201**, app log `Mail da giao cho Gmail API: to=..., messageId=fake-message-id` —
+  mỗi lần gửi có một dòng bằng chứng phía server (trước đây chỉ suy ra từ HTTP 201).
+- `POST /register` trùng email **chưa verify** → **409** "Email này đã đăng ký nhưng chưa xác thực.
+  Vui lòng kiểm tra hộp thư (kể cả thư mục Spam), hoặc bấm 'Gửi lại link xác thực'." (email đã verify
+  vẫn trả "Email đã tồn tại trong hệ thống"). FE render luôn nút gửi lại ở màn Register — đã đo trên
+  browser: 409 → bấm nút → `POST /resend-verification` **200** → đổi nhãn "Verification email sent" + đếm ngược.
+- Login trước verify → **401**; verify bằng token lấy từ chính body mail → **200**; login lại → **200**.
+- Regression hợp đồng mail fail (`/FAIL` bắt Gmail API trả 503) → `POST /register` **502**
+  "Không gửi được email...", `SELECT COUNT(*)` user mới = **0** (rollback), log "Gmail API tu choi gui mail".
 
 ### 8. Câu hỏi mở cho anh Huy
 
@@ -192,5 +202,6 @@ Cần đo khi có key Resend thật (bước còn lại của plan):
   xác minh, các luồng này (`GoogleAuthInterfaceImpl:79`, `GithubAuthInterfaceImpl:79`) giữ
   `enabled=true` như hiện tại.
 - **Mailbox gửi** dùng Gmail App Password (nhanh, đủ cho dev/staging) hay đăng ký provider
-  có quota rõ (SES/SendGrid) ngay từ đầu cho production? Đề xuất: Gmail cho bước này,
-  provider tính khi có user thật.
+  có quota rõ (SES/SendGrid) ngay từ đầu cho production? ~~Đề xuất: Gmail cho bước này~~
+  **ĐÃ CHỐT 2026-10-19: Gmail API** (không cần domain/SES, free). SMTP bị Render chặn port
+  25/465/587, Resend bị loại vì từ chối recipient lạ.
