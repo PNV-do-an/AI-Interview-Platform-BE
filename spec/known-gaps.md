@@ -33,7 +33,8 @@ Mỗi mục ghi cách kiểm chứng. "Đã đo" = tự chạy; "agent báo" = g
 
 - Upload/parse file CV (PDF/DOCX): `cv.service` chỉ có `analyzeCv` nhận **text**; `CandidateProfile.cvFileName` là chuỗi tự điền.
 - 2FA / magic link / device check (camera, mic, speaker, latency): không có API, không gọi MediaDevices.
-- Rubric Studio (system prompt, weights, cutoffs), Hiring Analytics (funnel, bias audit, calibration log), Job approval workflow (duyệt tin), Candidate scorecard của employer: không có endpoint.
+- Rubric Studio (system prompt, weights, cutoffs), Hiring Analytics (funnel, bias audit, calibration log), Candidate scorecard của employer: không có endpoint.
+- ~~Job approval workflow (duyệt tin)~~ — **BE đã có phần tối thiểu 2026-10-20** (003, `specs/003-create-job/`): `DRAFT → PENDING_APPROVAL → OPEN/DRAFT(kèm lý do)` + `PATCH /jobs/{id}/submit` và `/review` + audit `APPROVE_JOB`/`REJECT_JOB`. Màn "Job Approvals & Moderation" đầy đủ (KPI, bảng, filter) vẫn chưa có — feature 004.
 - Lưu job / bookmark, đánh giá tương thích profile, percentile/benchmark, audio replay của buổi mock, join Meet, test thiết bị: không có.
 - Trường dữ liệu mockup cần nhưng model không có: avatar URL, job title, location, phone, LinkedIn/GitHub/portfolio, chứng chỉ, GPA, skill kèm trình độ, ngày hết hạn offer, mức lương offer, timeline trạng thái ứng tuyển, `location` trên `Application`, điểm theo từng tiêu chí (chỉ có `score` từng câu).
 
@@ -107,6 +108,24 @@ Mỗi mục ghi cách kiểm chứng. "Đã đo" = tự chạy; "agent báo" = g
   - Còn giữ: `toLocaleString/toLocaleDateString('vi-VN')` (định dạng dữ liệu, không phải nhãn), comment code tiếng Việt, `formatVnd`.
 - Scan lại bằng: `grep -rnP '[\x{00C0}-\x{00FF}\x{0100}-\x{017F}\x{1E00}-\x{1EFF}]' src/views src/controllers src/models --include='*.tsx' --include='*.ts'` rồi loại dòng comment (chạy từ `frontend/`).
 - Các trang app không có trong 29 mockup (`CvAnalyzer`, `CoverLetters`, `BugReports`, `EmployerReviews`, `PackageManagement`, `AdminFeedback`) đang dùng primitive Stitch nhưng chưa từng được đối chiếu mockup nào -> mặc định là "không có thiết kế", muốn chuẩn hoá phải yêu cầu Stitch màn mới.
+
+## Tạo job (wizard 003) — điểm còn mở (2026-10-20, `specs/003-create-job/`)
+
+- **`POST /api/v1/jobs` đổi hành vi: trước tạo ngay `OPEN`, giờ tạo `DRAFT`** (C-1: một con đường
+  duy nhất lên `OPEN` là submit + admin duyệt). FE/script cũ còn gọi POST để đăng công khai sẽ thấy
+  job không lên list — phải đi qua `PATCH /{id}/submit` + admin `PATCH /{id}/review`.
+- **AI Job Optimizer (score/bias flags/forecast) và "AI Rephrase" không có BE** (C-4): chưa có AI
+  engine, không chế số giả. Wizard chỉ **lưu** cấu hình screening (toggle/track/pass score 50–95/
+  focus areas); FE tự ẩn cụm optimizer hoặc để tĩnh.
+- **`department`/`experienceLevel`/`employmentType` lưu String tự do** (không enum) — lọc/sort theo
+  các field này nếu làm sau phải chuẩn hóa lại lúc đó.
+- **Focus areas & skills là comma-string** (precedent `requiredSkills`): mục chứa dấu phẩy không
+  phân biệt được; FE chỉ cho chọn từ checklist, đừng cho gõ tự do.
+- **`reviewNote` (lý do từ chối) chỉ owner/admin thấy qua `GET /{id}`** — job có note là `DRAFT`,
+  mà `GET /{id}` với job `!= OPEN` trả 404 cho người lạ (hardening mới). Public list vẫn chỉ trả
+  `OPEN`, nên lý do từ chối không bao giờ lộ cho ứng viên.
+- **`REQ-2024-884` không có cột riêng**: FE tự dựng `REQ-{năm}-{id}` từ `id` + `createdAt`.
+- Hạn mức gói (`jobPostLimit`) vẫn **không** bị chặn khi tạo tin (giữ nguyên như trước).
 
 ## Quyết định đã chốt (để khỏi hỏi lại)
 

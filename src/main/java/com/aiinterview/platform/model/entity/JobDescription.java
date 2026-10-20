@@ -1,6 +1,8 @@
 package com.aiinterview.platform.model.entity;
 
+import com.aiinterview.platform.model.enums.AiScreeningTrack;
 import com.aiinterview.platform.model.enums.JobStatus;
+import com.aiinterview.platform.model.enums.WorkplaceModel;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
@@ -42,6 +44,46 @@ public class JobDescription {
     /** Comma-separated list of required skills, used for matching suggestions */
     @Column(columnDefinition = "TEXT")
     private String requiredSkills;
+
+    /** Wizard step 1 — all nullable so ddl-auto can add them without touching existing rows. */
+    private String department;
+
+    private String experienceLevel;
+
+    private String employmentType;
+
+    @Enumerated(EnumType.STRING)
+    private WorkplaceModel workplaceModel;
+
+    private String timezoneRequirement;
+
+    /** Wizard step 3 — structured salary. {@code salaryRange} stays the display string. */
+    private String salaryCurrency;
+
+    private Long salaryMin;
+
+    private Long salaryMax;
+
+    private String equityBand;
+
+    private String annualBonus;
+
+    /** Wizard step 4 — AI screening configuration, stored only (no engine behind it yet). */
+    private Boolean aiScreeningEnabled;
+
+    @Enumerated(EnumType.STRING)
+    private AiScreeningTrack aiScreeningTrack;
+
+    /** Passing score threshold, 50–95; only meaningful when aiScreeningEnabled = true. */
+    private Integer aiScreeningPassScore;
+
+    /** Comma-separated focus areas, same convention as requiredSkills. */
+    @Column(columnDefinition = "TEXT")
+    private String aiQuestionFocusAreas;
+
+    /** Reason written by the reviewer when rejecting; cleared on approval. */
+    @Column(columnDefinition = "TEXT")
+    private String reviewNote;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
