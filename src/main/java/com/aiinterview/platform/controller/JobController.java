@@ -2,6 +2,7 @@ package com.aiinterview.platform.controller;
 
 import com.aiinterview.platform.common.response.ApiResponse;
 import com.aiinterview.platform.model.dto.request.JobRequest;
+import com.aiinterview.platform.model.dto.request.JobReviewRequest;
 import com.aiinterview.platform.model.dto.response.JobDetailResponse;
 import com.aiinterview.platform.model.dto.response.JobSummaryResponse;
 import com.aiinterview.platform.model.dto.response.MatchResponse;
@@ -47,11 +48,11 @@ public class JobController {
         return ResponseEntity.ok(ApiResponse.success(jobService.getEmployerJobs(page, size)));
     }
 
-    /** POST /api/v1/jobs */
+    /** POST /api/v1/jobs — tạo bản nháp; OPEN chỉ đạt qua submit + admin duyệt */
     @PostMapping
     @PreAuthorize("hasAnyRole('INTERVIEWER','ADMIN','STAFF')")
     public ResponseEntity<ApiResponse<JobDetailResponse>> createJob(@Valid @RequestBody JobRequest request) {
-        return ResponseEntity.ok(ApiResponse.success("Tin tuyển dụng đã được tạo", jobService.createJob(request)));
+        return ResponseEntity.ok(ApiResponse.success("Đã lưu bản nháp tin tuyển dụng", jobService.createJob(request)));
     }
 
     /** PUT /api/v1/jobs/{id} */
@@ -62,12 +63,30 @@ public class JobController {
         return ResponseEntity.ok(ApiResponse.success("Tin tuyển dụng đã được cập nhật", jobService.updateJob(id, request)));
     }
 
-    /** PATCH /api/v1/jobs/{id}/status?status=OPEN|CLOSED */
+    /** PATCH /api/v1/jobs/{id}/status?status=OPEN|CLOSED — chỉ OPEN ↔ CLOSED */
     @PatchMapping("/{id}/status")
     @PreAuthorize("hasAnyRole('INTERVIEWER','ADMIN','STAFF')")
     public ResponseEntity<ApiResponse<JobDetailResponse>> changeStatus(
             @PathVariable Long id, @RequestParam JobStatus status) {
         return ResponseEntity.ok(ApiResponse.success("Trạng thái đã được cập nhật", jobService.changeStatus(id, status)));
+    }
+
+    /** PATCH /api/v1/jobs/{id}/submit — owner gửi bản nháp chờ duyệt */
+    @PatchMapping("/{id}/submit")
+    @PreAuthorize("hasAnyRole('INTERVIEWER','ADMIN','STAFF')")
+    public ResponseEntity<ApiResponse<JobDetailResponse>> submitForReview(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success("Đã gửi duyệt tin tuyển dụng", jobService.submitForReview(id)));
+    }
+
+    /** PATCH /api/v1/jobs/{id}/review — admin duyệt hoặc từ chối (kèm lý do) */
+    @PatchMapping("/{id}/review")
+    @PreAuthorize("hasAnyRole('ADMIN','STAFF')")
+    public ResponseEntity<ApiResponse<JobDetailResponse>> reviewJob(
+            @PathVariable Long id, @Valid @RequestBody JobReviewRequest request) {
+        boolean approved = Boolean.TRUE.equals(request.getApproved());
+        return ResponseEntity.ok(ApiResponse.success(
+                approved ? "Tin tuyển dụng đã được duyệt" : "Tin tuyển dụng đã bị từ chối",
+                jobService.reviewJob(id, request)));
     }
 
     /** DELETE /api/v1/jobs/{id} */

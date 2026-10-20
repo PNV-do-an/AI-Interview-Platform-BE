@@ -1,6 +1,7 @@
 package com.aiinterview.platform.service;
 
 import com.aiinterview.platform.model.dto.request.JobRequest;
+import com.aiinterview.platform.model.dto.request.JobReviewRequest;
 import com.aiinterview.platform.model.dto.response.JobDetailResponse;
 import com.aiinterview.platform.model.dto.response.JobSummaryResponse;
 import com.aiinterview.platform.model.dto.response.MatchResponse;
@@ -20,6 +21,10 @@ public interface JobService {
     JobDetailResponse updateJob(Long jobId, JobRequest request);
 
     JobDetailResponse changeStatus(Long jobId, JobStatus status);
+
+    JobDetailResponse submitForReview(Long jobId);
+
+    JobDetailResponse reviewJob(Long jobId, JobReviewRequest request);
 
     void deleteJob(Long jobId);
 
