@@ -1,9 +1,11 @@
 package com.aiinterview.platform.service.impl;
 
 import com.aiinterview.platform.model.dto.response.DashboardResponse;
+import com.aiinterview.platform.model.enums.InterviewSessionStatus;
 import com.aiinterview.platform.model.enums.JobStatus;
 import com.aiinterview.platform.model.enums.Role;
 import com.aiinterview.platform.model.repository.InterviewSessionRepository;
+import com.aiinterview.platform.model.repository.InterviewSlotRepository;
 import com.aiinterview.platform.model.repository.JobDescriptionRepository;
 import com.aiinterview.platform.model.repository.JobModerationRecordRepository;
 import com.aiinterview.platform.model.repository.LoginAttemptRepository;
@@ -13,7 +15,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,9 +30,13 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AdminDashboardServiceImpl implements AdminDashboardService {
 
+    private static final int TREND_MONTHS = 12;
+    private static final DateTimeFormatter MONTH_KEY = DateTimeFormatter.ofPattern("yyyy-MM");
+
     private final UserRepository userRepository;
     private final JobDescriptionRepository jobRepository;
     private final InterviewSessionRepository interviewSessionRepository;
+    private final InterviewSlotRepository interviewSlotRepository;
     private final LoginAttemptRepository loginAttemptRepository;
     private final JobModerationRecordRepository moderationRecordRepository;
 
@@ -75,6 +86,8 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                         .inPeriod(interviewSessionRepository.countByCreatedAtAfter(since))
                         .completedInPeriod(interviewSessionRepository.countByCompletedAtAfter(since))
                         .avgOverallScore(interviewSessionRepository.avgOverallScore())
+                        .avgDurationSeconds(rounded(interviewSessionRepository.avgDurationSeconds()))
+                        .liveNow(interviewSessionRepository.countByStatus(InterviewSessionStatus.IN_PROGRESS))
                         .build())
                 .logins(DashboardResponse.Logins.builder()
                         .successInPeriod(loginAttemptRepository.countBySuccessTrueAndTimestampAfter(since))
@@ -83,7 +96,45 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .moderation(DashboardResponse.Moderation.builder()
                         .pendingApproval(pendingModeration)
                         .build())
+                .trends(monthlyTrends())
                 .build();
+    }
+
+    /** Two group-by reads over the event tables, no aggregate table (009 FR-001). */
+    private DashboardResponse.Trends monthlyTrends() {
+        LocalDateTime from = YearMonth.from(LocalDate.now())
+                .minusMonths(TREND_MONTHS - 1L)
+                .atDay(1)
+                .atStartOfDay();
+
+        Map<String, long[]> buckets = new LinkedHashMap<>();
+        YearMonth cursor = YearMonth.from(from);
+        for (int i = 0; i < TREND_MONTHS; i++) {
+            buckets.put(cursor.format(MONTH_KEY), new long[2]);
+            cursor = cursor.plusMonths(1);
+        }
+
+        fill(buckets, interviewSessionRepository.countByMonthSince(from), 0);
+        fill(buckets, interviewSlotRepository.countBookedSlotsByMonthSince(from), 1);
+
+        List<DashboardResponse.Month> months = new ArrayList<>();
+        buckets.forEach((key, counts) -> months.add(DashboardResponse.Month.builder()
+                .month(key).mock(counts[0]).formal(counts[1]).build()));
+        return DashboardResponse.Trends.builder().months(months).build();
+    }
+
+    /** Buckets outside the window (e.g. a row written days earlier in the same month) are ignored. */
+    private static void fill(Map<String, long[]> buckets, List<Object[]> rows, int column) {
+        for (Object[] row : rows) {
+            long[] cell = buckets.get(String.valueOf(row[0]));
+            if (cell != null) {
+                cell[column] = asLong(row[1]);
+            }
+        }
+    }
+
+    private static Long rounded(BigDecimal value) {
+        return value == null ? null : Math.round(value.doubleValue());
     }
 
     private static Map<String, Long> emptyRoleCounts() {

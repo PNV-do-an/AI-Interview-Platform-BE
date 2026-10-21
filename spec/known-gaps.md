@@ -135,19 +135,48 @@ Mỗi mục ghi cách kiểm chứng. "Đã đo" = tự chạy; "agent báo" = g
 - **Đổi mật khẩu không gửi mail, không ghi `admin_audit_log`**: đó là hành động của chính user
   (`POST /api/user/change-password`), không phải thao tác admin. Phiên thu hồi bằng `tokenVersion++`,
   user biết qua lần refresh kế tiếp bị 401.
-- **`ai_safety_score` chỉ là cột lưu, không có giá trị**: chưa có AI engine nào ghi vào. FE phải ẩn ô
-  "điểm an toàn AI", đừng hiển thị 0.
+- **`ai_safety_score` được ghi bởi rule tất định từ 009** (không phải mô hình AI): 4 kiểm tra,
+  mỗi kiểm tra trượt trừ 25, ghi lúc employer nộp tin và tính lại y hệt lúc đọc
+  (`GET /admin/jobs/moderation/{id}` → `aiSafety`). Tin nộp trước 009 vẫn null ở cột lưu,
+  nhưng `aiSafety.score` luôn có.
 - **System settings chỉ lưu + chặn lúc ghi (422)**, MockInterview chưa đọc lại: đổi
   `ai.defaultQuestionCount` không làm số câu hỏi của buổi mock thực tế thay đổi cho tới khi có người nối.
 - **Ma trận RBAC là bảng tĩnh, chỉ đọc**: quyền thật do `JwtSecurityConfig` (`/api/v1/admin/**` →
   ROLE_ADMIN) và `@PreAuthorize` từng endpoint quyết định. Thêm/bớt ô trong matrix **không** đổi hành
   vi thật — test 006 đối chiếu 6 probe HTTP thật với từng ô tương ứng.
-- **Dashboard chỉ có số đo được**: không biểu đồ theo tuần/tháng, không phân bố địa lý, không
-  "activation rate" kiểu mockup. `avgOverallScore` trả `null` khi chưa có buổi nào có điểm, không gán 0.
+- **Dashboard chỉ có số đo được.** Chuỗi 12 tháng + thời lượng trung bình + số phiên đang chạy vào
+  từ 009 (group-by trực tiếp trên `interview_sessions`/`interview_slots`, không lập bảng aggregate);
+  vẫn không có phân bố địa lý hay "activation rate" kiểu mockup. `avgOverallScore`/
+  `avgDurationSeconds` trả `null` khi chưa có dữ liệu, không gán 0.
 - **`processingSeconds` tính và lưu lúc ghi** thay vì suy ra khi đọc: nhánh từ chối xóa `submittedAt`
   trước khi kịp tính, nếu tính lúc đọc thì dòng REJECTED luôn thiếu thời gian chờ.
 - **`search` không escape `%`/`_`** (JPQL LIKE không `ESCAPE`): gõ `%` vào ô tìm kiếm trả kết quả rỗng
   thay vì khớp ký tự `%` trong tiêu đề. Cần tìm cả dấu `%` thì thêm `ESCAPE '\'`.
+
+## Admin wave 009 — điểm còn mở (2026-10-21, `specs/009-admin-data-completion/`)
+
+- **Không có nguồn số cho hạ tầng**: uptime 99.98%, độ trễ 320ms, token 1.240/2.500, "Hạ tầng kết
+  nối AI", version `v2.4.0-prod` — BE không đo và không có bảng nào chứa, FE giữ nhãn "Khối demo".
+  Trong card đó chỉ `liveNow` (số phiên đang chạy) là thật.
+- **Ngày sinh / nơi cư trú không có cột**, và màn hồ sơ cũng không có ô nhập ⇒ không thêm cột rỗng
+  chỉ để FE khỏi dán nhãn demo.
+- **Avatar, 2FA, danh sách thiết bị đang đăng nhập + thu hồi từng phiên**: không có kho file, không
+  có bảng session. `tokenVersion++` thu hồi *mọi* phiên của một user, không chọn được từng phiên.
+- **`GET /admin/users/{id}/activity` cửa sổ 1000 dòng**: timeline gộp ba nguồn nên dựng trong bộ
+  nhớ; vượt cửa sổ thì 400 chứ không chậm dần vô hạn. `totalElements` luôn đúng toàn bộ.
+- **`trustScore` chỉ là tỷ lệ duyệt/từ chối** (`100 × approved / (approved + rejected)`), chưa có
+  tín hiệu xác minh doanh nghiệp hay MST ⇒ chưa quyết định nào thì null, không mặc định 100.
+- **Danh mục là đọc, không CRUD**: `department`/`experienceLevel`/`employmentType` vẫn là chuỗi tự
+  do trên từng tin, chưa có bảng taxonomy chuẩn nên không có chuyện thêm/sửa/xóa một giá trị.
+- **Điểm an toàn lưu có thể lệch nội dung nếu tin đã OPEN bị sửa**: `updateJob` chỉ chặn bản tin đang
+  chờ duyệt, nên khi sửa tin đã duyệt thì điểm lưu được tính lại cùng lúc; bản nháp chưa nộp vẫn
+  null cho tới lần submit đầu. `aiSafety.score` trong response luôn tính lại từ nội dung đang đọc.
+- **Sàng lọc là rule, không phải mô hình AI**: 4 kiểm tra tất định (tiêu đề IT, độ dài mô tả,
+  yêu cầu/kỹ năng, rò rỉ liên lạc). Muốn thay bằng LLM thì thay `JdPolicyScreener`, hợp đồng
+  response giữ nguyên.
+- **ROLE_STAFF chỉ được miền kiểm duyệt JD**: `/admin/jobs/moderation/**` mở cho staff (khớp quyền
+  quyết định duyệt), còn `users`/`dashboard`/`settings`/`permissions`/`categories`/`audit-logs` vẫn
+  ADMIN-only ⇒ ma trận 006 mô tả "admin-console = adminOnly" vẫn đúng cho các màn kia.
 
 ## Quyết định đã chốt (để khỏi hỏi lại)
 

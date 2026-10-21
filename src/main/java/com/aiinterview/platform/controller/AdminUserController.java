@@ -14,6 +14,7 @@ import com.aiinterview.platform.model.dto.response.AdminProfileUpdateResponse;
 import com.aiinterview.platform.model.dto.response.AdminUserStatsResponse;
 import com.aiinterview.platform.model.dto.response.AuditLogResponse;
 import com.aiinterview.platform.model.dto.response.BulkUserActionResult;
+import com.aiinterview.platform.model.dto.response.UserActivityResponse;
 import com.aiinterview.platform.model.dto.response.UserDetailResponse;
 import com.aiinterview.platform.model.dto.response.UserSummaryResponse;
 import com.aiinterview.platform.model.enums.AuditAction;
@@ -131,6 +132,16 @@ public class AdminUserController {
     @GetMapping("/users/{id}")
     public ResponseEntity<ApiResponse<UserDetailResponse>> getUserDetail(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(adminUserService.getUserDetail(id)));
+    }
+
+    /** GET /api/v1/admin/users/{id}/activity — merged timeline of the account's activity (009 FR-003). */
+    @GetMapping("/users/{id}/activity")
+    public ResponseEntity<ApiResponse<Page<UserActivityResponse>>> getUserActivity(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "0") @Min(value = 0, message = "page không được âm") int page,
+            @RequestParam(defaultValue = "20") @Min(value = 1, message = "size phải ≥ 1")
+            @Max(value = 100, message = "size tối đa là 100") int size) {
+        return ResponseEntity.ok(ApiResponse.success(adminUserService.getUserActivity(id, page, size)));
     }
 
     /**

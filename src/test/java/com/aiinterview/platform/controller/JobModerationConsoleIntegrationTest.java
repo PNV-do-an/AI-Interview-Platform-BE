@@ -368,24 +368,33 @@ class JobModerationConsoleIntegrationTest {
                 .andExpect(status().isBadRequest());
     }
 
-    // ==================== AC-5: bảo vệ 4 endpoint console, review vẫn mở cho STAFF =====
+    // ==================== AC-5: bảo vệ endpoint, hàng chờ đọc mở cho STAFF (009 FR-007) =====
 
     @Test
-    @DisplayName("AC-5: anonymous ⇒ 401 và STAFF ⇒ 403 trên cả 4 endpoint console")
-    void testConsole_Anonymous401_Staff403() throws Exception {
+    @DisplayName("AC-5 + 009 FR-007: anonymous ⇒ 401, STAFF đọc được 4 endpoint hàng chờ, admin-only vẫn 403")
+    void testConsole_Anonymous401_StaffReadsQueue() throws Exception {
+        // Id thật: STAFF đi tới tận service nên một id không tồn tại sẽ trả 404 chứ không phải 403.
+        JobDescription pending = persistJob("Queue readable by staff", JobStatus.PENDING_APPROVAL, employer);
+
         // Builder mới cho từng request: MockHttpServletRequestBuilder tích trạng thái post-processor.
         List<java.util.function.Supplier<MockHttpServletRequestBuilder>> calls = List.of(
                 () -> get("/api/v1/admin/jobs/moderation"),
-                () -> get("/api/v1/admin/jobs/moderation/1"),
+                () -> get("/api/v1/admin/jobs/moderation/" + pending.getId()),
                 () -> get("/api/v1/admin/jobs/moderation/history"),
-                () -> get("/api/v1/admin/jobs/moderation/history/stats"));
+                () -> get("/api/v1/admin/jobs/moderation/history/stats"),
+                () -> get("/api/v1/admin/jobs/moderation/stats"));
 
         for (var call : calls) {
             mockMvc.perform(call.get().with(csrf()))
                     .andExpect(status().isUnauthorized());
             mockMvc.perform(call.get().with(user(staff.getEmail()).roles("STAFF")).with(csrf()))
-                    .andExpect(status().isForbidden());
+                    .andExpect(status().isOk());
         }
+
+        // STAFF chỉ được miền kiểm duyệt JD; mọi endpoint admin khác vẫn 403.
+        mockMvc.perform(get("/api/v1/admin/users")
+                        .with(user(staff.getEmail()).roles("STAFF")))
+                .andExpect(status().isForbidden());
     }
 
     @Test

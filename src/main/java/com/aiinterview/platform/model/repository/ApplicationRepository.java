@@ -23,4 +23,6 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
     Optional<Application> findByIdAndCandidate(Long id, User candidate);
 
     long countByJobAndStatus(JobDescription job, com.aiinterview.platform.model.enums.ApplicationStatus status);
+
+    long countByCandidate(User candidate);
 }

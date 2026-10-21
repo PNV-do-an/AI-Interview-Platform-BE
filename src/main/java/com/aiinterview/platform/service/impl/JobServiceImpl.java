@@ -11,6 +11,7 @@ import com.aiinterview.platform.model.dto.response.MatchResponse;
 import com.aiinterview.platform.model.dto.response.ModerationHistoryStatsResponse;
 import com.aiinterview.platform.model.dto.response.ModerationJobDetailResponse;
 import com.aiinterview.platform.model.dto.response.ModerationJobResponse;
+import com.aiinterview.platform.model.dto.response.ModerationQueueStatsResponse;
 import com.aiinterview.platform.model.dto.response.ModerationRecordResponse;
 import com.aiinterview.platform.model.entity.AdminAuditLog;
 import com.aiinterview.platform.model.entity.JobDescription;
@@ -28,6 +29,7 @@ import com.aiinterview.platform.model.repository.UserRepository;
 import com.aiinterview.platform.security.utils.SecurityUtils;
 import com.aiinterview.platform.service.JobService;
 import com.aiinterview.platform.service.MatchingService;
+import com.aiinterview.platform.service.ai.JdPolicyScreener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -99,6 +101,11 @@ public class JobServiceImpl implements JobService {
         }
         validateWizardPayload(request);
         applyWizardFields(job, request);
+        if (job.getAiSafetyScore() != null) {
+            // Nội dung đổi thì điểm đã lưu phải đổi theo, nếu không cột ai_safety_score kể
+            // về một bản tin cũ. Bản nháp chưa nộp vẫn để trống, submit sẽ ghi điểm đầu tiên.
+            job.setAiSafetyScore(JdPolicyScreener.screen(job).score());
+        }
         return JobDetailResponse.from(jobRepository.save(job));
     }
 
@@ -129,6 +136,9 @@ public class JobServiceImpl implements JobService {
         LocalDateTime submittedAt = LocalDateTime.now();
         job.setStatus(JobStatus.PENDING_APPROVAL);
         job.setSubmittedAt(submittedAt);
+        // 009 FR-006: rule-based pre-screen, the column's first writer. Reviewers see the same
+        // numbers again through moderationDetail(), because the rules only read stored fields.
+        job.setAiSafetyScore(JdPolicyScreener.screen(job).score());
         job = jobRepository.save(job);
         boolean resubmitted = moderationRecordRepository.existsByJobIdAndAction(jobId, ModerationAction.REJECTED);
         moderationRecordRepository.save(JobModerationRecord.builder()
@@ -219,12 +229,59 @@ public class JobServiceImpl implements JobService {
                 .findByJobIdOrderByCreatedAtDesc(jobId).stream()
                 .map(ModerationRecordResponse::from)
                 .toList();
+        JdPolicyScreener.Screening screening = JdPolicyScreener.screen(job);
         return ModerationJobDetailResponse.builder()
                 .job(JobDetailResponse.from(job))
                 .submittedAt(job.getSubmittedAt())
                 .decidedAt(job.getDecidedAt())
                 .aiSafetyScore(job.getAiSafetyScore())
+                .aiSafety(ModerationJobDetailResponse.AiSafety.builder()
+                        .score(screening.score())
+                        .checks(screening.checks().stream()
+                                .map(c -> ModerationJobDetailResponse.SafetyCheck.builder()
+                                        .key(c.key()).label(c.label())
+                                        .passed(c.passed()).note(c.note()).build())
+                                .toList())
+                        .build())
+                .employer(employerSnapshot(job.getEmployer(), job.getCompanyName()))
                 .timeline(timeline)
+                .build();
+    }
+
+    /** 009 FR-005: everything the reviewer needs to judge the account behind a posting. */
+    private ModerationJobDetailResponse.Employer employerSnapshot(User employer, String companyName) {
+        long total = jobRepository.countByEmployerIdAndDeletedAtIsNull(employer.getId());
+        long pending = jobRepository.countByEmployerIdAndDeletedAtIsNullAndStatus(
+                employer.getId(), JobStatus.PENDING_APPROVAL);
+        long approved = moderationRecordRepository.countDistinctJobsOfEmployerByAction(
+                ModerationAction.APPROVED, employer.getId());
+        long rejected = moderationRecordRepository.countDistinctJobsOfEmployerByAction(
+                ModerationAction.REJECTED, employer.getId());
+        long decided = approved + rejected;
+        return ModerationJobDetailResponse.Employer.builder()
+                .id(employer.getId())
+                .companyName(companyName)
+                .email(employer.getEmail())
+                .accountCreatedAt(employer.getCreatedAt())
+                .jobs(ModerationJobDetailResponse.EmployerJobs.builder()
+                        .total(total).approved(approved).rejected(rejected).pending(pending).build())
+                // No decision yet means no evidence either way — null, never a default 100.
+                .trustScore(decided == 0 ? null : (int) Math.round(100.0 * approved / decided))
+                .build();
+    }
+
+    @Override
+    public ModerationQueueStatsResponse moderationQueueStats() {
+        long pending = jobRepository.countByDeletedAtIsNullAndStatus(JobStatus.PENDING_APPROVAL);
+        return ModerationQueueStatsResponse.builder()
+                .pending(pending)
+                .draft(jobRepository.countByDeletedAtIsNullAndStatus(JobStatus.DRAFT))
+                .approved(jobRepository.countByDeletedAtIsNullAndStatus(JobStatus.OPEN))
+                .rejected(moderationRecordRepository.countDistinctJobsByAction(ModerationAction.REJECTED))
+                .total(jobRepository.countByDeletedAtIsNullAndStatus(JobStatus.CLOSED)
+                        + pending
+                        + jobRepository.countByDeletedAtIsNullAndStatus(JobStatus.DRAFT)
+                        + jobRepository.countByDeletedAtIsNullAndStatus(JobStatus.OPEN))
                 .build();
     }
 

@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 public interface LoginAttemptRepository extends JpaRepository<LoginAttempt, Long> {
     List<LoginAttempt> findByEmailAndSuccessFalseAndTimestampAfter(String email, LocalDateTime since);
@@ -26,6 +27,9 @@ public interface LoginAttemptRepository extends JpaRepository<LoginAttempt, Long
     List<Object[]> findLastSuccessByEmailIn(@Param("emails") Collection<String> emails);
 
     long countBySuccessTrueAndTimestampAfter(LocalDateTime since);
+
+    /** Newest successful sign-in of one account — 009 FR-002 (last login + IP). */
+    Optional<LoginAttempt> findTop1ByEmailAndSuccessTrueOrderByTimestampDesc(String email);
 
     long countBySuccessFalseAndTimestampAfter(LocalDateTime since);
 
