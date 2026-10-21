@@ -24,6 +24,10 @@
   lên **14/14**, 98.99 s; `JobControllerIntegrationTest` 16/16, 53.24 s;
   `JobModerationConsoleIntegrationTest` 9/9, 52.64 s).
 
+- Chốt lại trên nền `dev` `f178240` (tức đã gồm bản vá khóa login `f9a156b` mà 167 test ở trên chưa
+  chạy cùng): `mvn -B -o test` = **Tests run: 169, Failures: 0, Errors: 0**, BUILD SUCCESS (9:14 min).
+  169 = 154 nền + 14 test 009 (`AdminDataCompletionIntegrationTest` 14/14) + số test nền của `dev`.
+
 ## AC → test
 
 | AC | Test | Số đo được |
