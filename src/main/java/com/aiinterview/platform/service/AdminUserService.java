@@ -10,6 +10,7 @@ import com.aiinterview.platform.model.dto.response.AdminProfileUpdateResponse;
 import com.aiinterview.platform.model.dto.response.AdminUserStatsResponse;
 import com.aiinterview.platform.model.dto.response.AuditLogResponse;
 import com.aiinterview.platform.model.dto.response.BulkUserActionResult;
+import com.aiinterview.platform.model.dto.response.UserActivityResponse;
 import com.aiinterview.platform.model.dto.response.UserDetailResponse;
 import com.aiinterview.platform.model.dto.response.UserSummaryResponse;
 import com.aiinterview.platform.model.enums.Role;
@@ -28,6 +29,9 @@ public interface AdminUserService {
 
     /** Works for soft-deleted accounts too (read-only view before restoring). */
     UserDetailResponse getUserDetail(Long userId);
+
+    /** Merged timeline of the account's applications, mock sessions and booked slots (009 FR-003). */
+    Page<UserActivityResponse> getUserActivity(Long userId, int page, int size);
 
     /**
      * {@code request} is optional: null keeps the pre-008 behaviour (always notify).

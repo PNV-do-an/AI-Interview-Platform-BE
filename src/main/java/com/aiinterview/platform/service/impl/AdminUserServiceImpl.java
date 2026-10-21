@@ -13,14 +13,23 @@ import com.aiinterview.platform.model.dto.response.AdminProfileUpdateResponse;
 import com.aiinterview.platform.model.dto.response.AdminUserStatsResponse;
 import com.aiinterview.platform.model.dto.response.AuditLogResponse;
 import com.aiinterview.platform.model.dto.response.BulkUserActionResult;
+import com.aiinterview.platform.model.dto.response.UserActivityResponse;
 import com.aiinterview.platform.model.dto.response.UserDetailResponse;
 import com.aiinterview.platform.model.dto.response.UserSummaryResponse;
 import com.aiinterview.platform.model.entity.AdminAuditLog;
+import com.aiinterview.platform.model.entity.Application;
+import com.aiinterview.platform.model.entity.CandidateProfile;
+import com.aiinterview.platform.model.entity.InterviewSession;
+import com.aiinterview.platform.model.entity.InterviewSlot;
 import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.enums.AuditAction;
 import com.aiinterview.platform.model.enums.Role;
 import com.aiinterview.platform.model.enums.UserStatusFilter;
 import com.aiinterview.platform.model.repository.AdminAuditLogRepository;
+import com.aiinterview.platform.model.repository.ApplicationRepository;
+import com.aiinterview.platform.model.repository.CandidateProfileRepository;
+import com.aiinterview.platform.model.repository.InterviewSessionRepository;
+import com.aiinterview.platform.model.repository.InterviewSlotRepository;
 import com.aiinterview.platform.model.repository.LoginAttemptRepository;
 import com.aiinterview.platform.model.repository.UserRepository;
 import com.aiinterview.platform.service.AdminUserService;
@@ -30,6 +39,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -42,6 +52,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -64,10 +76,16 @@ public class AdminUserServiceImpl implements AdminUserService {
     /** KPI "active in the last 30 days" window (Clarify C-1). */
     private static final int RECENT_LOGIN_WINDOW_DAYS = 30;
     private static final int MAX_EXPORT_ROWS = 10_000;
+    /** The merged timeline is built in memory, so deep paging has to stop somewhere (009 FR-003). */
+    private static final int MAX_ACTIVITY_WINDOW = 1_000;
 
     private final UserRepository userRepository;
     private final AdminAuditLogRepository auditLogRepository;
     private final LoginAttemptRepository loginAttemptRepository;
+    private final CandidateProfileRepository candidateProfileRepository;
+    private final ApplicationRepository applicationRepository;
+    private final InterviewSessionRepository interviewSessionRepository;
+    private final InterviewSlotRepository interviewSlotRepository;
     private final EmailService emailService;
     private final AdminAuditWriter auditWriter;
     private final PasswordEncoder passwordEncoder;
@@ -115,7 +133,115 @@ public class AdminUserServiceImpl implements AdminUserService {
         User admin = requireAdmin();
         User target = findUserOrThrow(userId);
         saveAuditLog(admin, userId, AuditAction.VIEW_USER, "Xem chi tiết tài khoản: " + target.getEmail());
-        return UserDetailResponse.from(target);
+        return enrichDetail(UserDetailResponse.from(target), target);
+    }
+
+    /**
+     * Spec 009 FR-002: the four extra blocks of the detail screen. Each is one read of a table
+     * that already exists — no derived number is invented when the source is empty.
+     */
+    private UserDetailResponse enrichDetail(UserDetailResponse detail, User target) {
+        loginAttemptRepository.findTop1ByEmailAndSuccessTrueOrderByTimestampDesc(target.getEmail())
+                .ifPresent(attempt -> {
+                    detail.setLastLoginAt(attempt.getTimestamp());
+                    detail.setLastIp(attempt.getIpAddress());
+                });
+
+        Double readiness = interviewSessionRepository.avgOverallScoreOf(target.getId());
+        detail.setAiReadinessScore(readiness == null ? null : Math.round(readiness * 10) / 10.0);
+
+        detail.setActivity(UserDetailResponse.Activity.builder()
+                .applications(applicationRepository.countByCandidate(target))
+                .mockSessions(interviewSessionRepository.countByCandidate(target))
+                .bookedInterviews(interviewSlotRepository.countByBookedByAndCancelledFalse(target))
+                .build());
+
+        detail.setProfile(candidateProfileRepository.findByUser(target)
+                .map(AdminUserServiceImpl::profileView)
+                .orElse(null));
+        return detail;
+    }
+
+    private static UserDetailResponse.Profile profileView(CandidateProfile profile) {
+        return UserDetailResponse.Profile.builder()
+                .skills(splitSkills(profile.getSkills()))
+                .experienceYears(profile.getExperienceYears())
+                .summary(profile.getSummary())
+                .careerGoal(profile.getCareerGoal())
+                .cvFileName(profile.getCvFileName())
+                .updatedAt(profile.getUpdatedAt())
+                .build();
+    }
+
+    private static List<String> splitSkills(String skills) {
+        if (skills == null || skills.isBlank()) {
+            return List.of();
+        }
+        return java.util.Arrays.stream(skills.split(","))
+                .map(String::trim)
+                .filter(skill -> !skill.isEmpty())
+                .distinct()
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<UserActivityResponse> getUserActivity(Long userId, int page, int size) {
+        requireAdmin();
+        User target = findUserOrThrow(userId);
+        if ((long) (page + 1) * size > MAX_ACTIVITY_WINDOW) {
+            throw new BadRequestException("Dòng thời gian chỉ xem tới " + MAX_ACTIVITY_WINDOW + " dòng đầu");
+        }
+
+        Pageable window = PageRequest.of(0, (page + 1) * size);
+        List<UserActivityResponse> events = new ArrayList<>();
+        applicationRepository.findByCandidateOrderByCreatedAtDesc(target, window)
+                .forEach(application -> events.add(applicationEvent(application)));
+        interviewSessionRepository.findByCandidateOrderByCreatedAtDesc(target, window)
+                .forEach(session -> events.add(sessionEvent(session)));
+        interviewSlotRepository.findByBookedByAndCancelledFalseOrderByStartTimeDesc(target, window)
+                .forEach(slot -> events.add(slotEvent(slot)));
+        events.sort(Comparator.comparing(UserActivityResponse::getOccurredAt).reversed());
+
+        long total = applicationRepository.countByCandidate(target)
+                + interviewSessionRepository.countByCandidate(target)
+                + interviewSlotRepository.countByBookedByAndCancelledFalse(target);
+        int from = Math.min(page * size, events.size());
+        int to = Math.min(from + size, events.size());
+        return new PageImpl<>(events.subList(from, to), PageRequest.of(page, size), total);
+    }
+
+    private static UserActivityResponse applicationEvent(Application application) {
+        return UserActivityResponse.builder()
+                .type(UserActivityResponse.ActivityType.APPLICATION)
+                .id(application.getId())
+                .title(application.getJob() == null ? null : application.getJob().getTitle())
+                .status(application.getStatus().name())
+                .occurredAt(application.getCreatedAt())
+                .build();
+    }
+
+    private static UserActivityResponse sessionEvent(InterviewSession session) {
+        String title = session.getTopic() != null && !session.getTopic().isBlank()
+                ? session.getTopic()
+                : session.getJob() == null ? "Luyện phỏng vấn" : session.getJob().getTitle();
+        return UserActivityResponse.builder()
+                .type(UserActivityResponse.ActivityType.MOCK_SESSION)
+                .id(session.getId())
+                .title(title)
+                .status(session.getStatus().name())
+                .occurredAt(session.getCreatedAt())
+                .build();
+    }
+
+    private static UserActivityResponse slotEvent(InterviewSlot slot) {
+        return UserActivityResponse.builder()
+                .type(UserActivityResponse.ActivityType.INTERVIEW_SLOT)
+                .id(slot.getId())
+                .title(slot.getEmployer() == null ? null : slot.getEmployer().getFullName())
+                .status("BOOKED")
+                .occurredAt(slot.getStartTime())
+                .build();
     }
 
     @Override

@@ -40,6 +40,9 @@ public class JwtSecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         // Second layer: @PreAuthorize on the controller still applies.
+                        // 009 FR-007: staff quyết định duyệt JD (PATCH /jobs/{id}/review) nên phải đọc
+                        // được hàng chờ, trong khi mọi endpoint admin khác vẫn ADMIN-only.
+                        .requestMatchers("/api/v1/admin/jobs/moderation/**").hasAnyRole("ADMIN", "STAFF")
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .anyRequest().permitAll()
                 )

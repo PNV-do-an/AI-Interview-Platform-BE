@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 @Builder
@@ -29,6 +30,35 @@ public class UserDetailResponse {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private LocalDateTime deletedAt;
+
+    /** Newest successful row of login_attempts for this email; null when the account never signed in. */
+    private LocalDateTime lastLoginAt;
+    private String lastIp;
+    /** Mean overall_score of this account's completed sessions, 1 decimal; null when untested. */
+    private Double aiReadinessScore;
+    private Activity activity;
+    /** Null until the candidate fills in their profile. */
+    private Profile profile;
+
+    @Data
+    @Builder
+    public static class Activity {
+        private long applications;
+        private long mockSessions;
+        private long bookedInterviews;
+    }
+
+    @Data
+    @Builder
+    public static class Profile {
+        /** candidate_profiles.skills is a comma-separated TEXT column. */
+        private List<String> skills;
+        private Integer experienceYears;
+        private String summary;
+        private String careerGoal;
+        private String cvFileName;
+        private LocalDateTime updatedAt;
+    }
 
     public static UserDetailResponse from(User user) {
         LocalDateTime blockUntil = user.getLockUntil();

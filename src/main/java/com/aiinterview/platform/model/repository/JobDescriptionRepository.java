@@ -53,4 +53,39 @@ public interface JobDescriptionRepository extends JpaRepository<JobDescription, 
     List<Object[]> countLiveByStatus();
 
     long countByCreatedAtAfterAndDeletedAtIsNull(LocalDateTime since);
+
+    long countByDeletedAtIsNullAndStatus(JobStatus status);
+
+    long countByEmployerIdAndDeletedAtIsNull(Long employerId);
+
+    long countByEmployerIdAndDeletedAtIsNullAndStatus(Long employerId, JobStatus status);
+
+    /** Categories page (009 FR-008): {@code [value, count]} over live jobs, blanks excluded; sorted in Java. */
+    @Query("""
+            SELECT j.department, COUNT(j.id) FROM JobDescription j
+            WHERE j.deletedAt IS NULL AND j.department IS NOT NULL AND TRIM(j.department) <> ''
+            GROUP BY j.department
+            """)
+    List<Object[]> countGroupedByDepartment();
+
+    @Query("""
+            SELECT j.experienceLevel, COUNT(j.id) FROM JobDescription j
+            WHERE j.deletedAt IS NULL AND j.experienceLevel IS NOT NULL AND TRIM(j.experienceLevel) <> ''
+            GROUP BY j.experienceLevel
+            """)
+    List<Object[]> countGroupedByExperienceLevel();
+
+    @Query("""
+            SELECT j.employmentType, COUNT(j.id) FROM JobDescription j
+            WHERE j.deletedAt IS NULL AND j.employmentType IS NOT NULL AND TRIM(j.employmentType) <> ''
+            GROUP BY j.employmentType
+            """)
+    List<Object[]> countGroupedByEmploymentType();
+
+    @Query("""
+            SELECT j.workplaceModel, COUNT(j.id) FROM JobDescription j
+            WHERE j.deletedAt IS NULL AND j.workplaceModel IS NOT NULL
+            GROUP BY j.workplaceModel
+            """)
+    List<Object[]> countGroupedByWorkplaceModel();
 }

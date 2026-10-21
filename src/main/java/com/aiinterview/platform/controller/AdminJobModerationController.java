@@ -5,6 +5,7 @@ import com.aiinterview.platform.model.dto.response.JobModerationHistoryResponse;
 import com.aiinterview.platform.model.dto.response.ModerationHistoryStatsResponse;
 import com.aiinterview.platform.model.dto.response.ModerationJobDetailResponse;
 import com.aiinterview.platform.model.dto.response.ModerationJobResponse;
+import com.aiinterview.platform.model.dto.response.ModerationQueueStatsResponse;
 import com.aiinterview.platform.model.enums.JobStatus;
 import com.aiinterview.platform.model.enums.ModerationAction;
 import com.aiinterview.platform.service.JobService;
@@ -25,13 +26,13 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 
 /**
- * Moderation console for admins (spec 004). Sits under /api/v1/admin/** so the URL rule
- * already enforces ROLE_ADMIN; the class annotation is the second defence layer, same as
- * AdminUserController.
+ * Moderation console (spec 004), opened to ROLE_STAFF by 009 FR-007 because staff already
+ * decides approvals through PATCH /jobs/{id}/review. The URL rule under
+ * /api/v1/admin/jobs/moderation/** carries the same pair; this annotation is the second layer.
  */
 @RestController
 @RequestMapping("/api/v1/admin/jobs/moderation")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasAnyRole('ADMIN','STAFF')")
 @Validated
 @RequiredArgsConstructor
 public class AdminJobModerationController {
@@ -39,6 +40,12 @@ public class AdminJobModerationController {
     private static final int MAX_PAGE_SIZE = 100;
 
     private final JobService jobService;
+
+    /** GET /api/v1/admin/jobs/moderation/stats — the four queue chips (009 FR-004). */
+    @GetMapping("/stats")
+    public ResponseEntity<ApiResponse<ModerationQueueStatsResponse>> moderationStats() {
+        return ResponseEntity.ok(ApiResponse.success(jobService.moderationQueueStats()));
+    }
 
     /** GET /api/v1/admin/jobs/moderation?status=PENDING_APPROVAL&search=... */
     @GetMapping

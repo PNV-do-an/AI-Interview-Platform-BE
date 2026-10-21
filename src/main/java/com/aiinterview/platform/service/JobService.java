@@ -9,6 +9,7 @@ import com.aiinterview.platform.model.dto.response.MatchResponse;
 import com.aiinterview.platform.model.dto.response.ModerationHistoryStatsResponse;
 import com.aiinterview.platform.model.dto.response.ModerationJobDetailResponse;
 import com.aiinterview.platform.model.dto.response.ModerationJobResponse;
+import com.aiinterview.platform.model.dto.response.ModerationQueueStatsResponse;
 import com.aiinterview.platform.model.enums.JobStatus;
 import com.aiinterview.platform.model.enums.ModerationAction;
 import org.springframework.data.domain.Page;
@@ -49,4 +50,7 @@ public interface JobService {
                                                          Long moderatorId, String search);
 
     ModerationHistoryStatsResponse moderationHistoryStats();
+
+    /** The four chips above the queue (spec 009 FR-004). */
+    ModerationQueueStatsResponse moderationQueueStats();
 }

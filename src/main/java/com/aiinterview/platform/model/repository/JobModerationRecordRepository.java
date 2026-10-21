@@ -19,6 +19,17 @@ public interface JobModerationRecordRepository extends JpaRepository<JobModerati
 
     long countByAction(ModerationAction action);
 
+    /** Distinct jobs carrying this decision — a job resubmitted after a rejection counts once. */
+    @Query("SELECT COUNT(DISTINCT r.job.id) FROM JobModerationRecord r WHERE r.action = :action")
+    long countDistinctJobsByAction(@Param("action") ModerationAction action);
+
+    @Query("""
+            SELECT COUNT(DISTINCT r.job.id) FROM JobModerationRecord r
+            WHERE r.action = :action AND r.job.employer.id = :employerId AND r.job.deletedAt IS NULL
+            """)
+    long countDistinctJobsOfEmployerByAction(@Param("action") ModerationAction action,
+                                             @Param("employerId") Long employerId);
+
     @Query("""
             SELECT AVG(r.processingSeconds)
             FROM JobModerationRecord r
