@@ -33,6 +33,9 @@ public interface JobService {
 
     JobDetailResponse submitForReview(Long jobId);
 
+    /** Employer rút tin đang chờ duyệt về bản nháp (FR-JD: một tin không nằm hai nơi cùng lúc). */
+    JobDetailResponse withdrawFromReview(Long jobId);
+
     JobDetailResponse reviewJob(Long jobId, JobReviewRequest request);
 
     void deleteJob(Long jobId);

@@ -78,6 +78,13 @@ public class JobController {
         return ResponseEntity.ok(ApiResponse.success("Đã gửi duyệt tin tuyển dụng", jobService.submitForReview(id)));
     }
 
+    /** PATCH /api/v1/jobs/{id}/withdraw — owner rút tin đang chờ duyệt về bản nháp */
+    @PatchMapping("/{id}/withdraw")
+    @PreAuthorize("hasAnyRole('INTERVIEWER','ADMIN','STAFF')")
+    public ResponseEntity<ApiResponse<JobDetailResponse>> withdrawFromReview(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success("Đã rút tin khỏi hàng chờ duyệt", jobService.withdrawFromReview(id)));
+    }
+
     /** PATCH /api/v1/jobs/{id}/review — admin duyệt hoặc từ chối (kèm lý do) */
     @PatchMapping("/{id}/review")
     @PreAuthorize("hasAnyRole('ADMIN','STAFF')")

@@ -152,6 +152,26 @@ public class JobServiceImpl implements JobService {
 
     @Override
     @Transactional
+    public JobDetailResponse withdrawFromReview(Long jobId) {
+        JobDescription job = findOwnedJobOrThrow(jobId);
+        if (job.getStatus() != JobStatus.PENDING_APPROVAL) {
+            throw new BadRequestException("Chỉ tin đang chờ duyệt mới rút được");
+        }
+        job.setStatus(JobStatus.DRAFT);
+        // Đồng hồ hàng chờ tắt: lần nộp lại sẽ tính từ mốc submit mới.
+        job.setSubmittedAt(null);
+        job = jobRepository.save(job);
+        moderationRecordRepository.save(JobModerationRecord.builder()
+                .job(job)
+                .actor(job.getEmployer())
+                .actorRole(ModerationActorRole.EMPLOYER)
+                .action(ModerationAction.WITHDRAWN)
+                .build());
+        return JobDetailResponse.from(job);
+    }
+
+    @Override
+    @Transactional
     public JobDetailResponse reviewJob(Long jobId, JobReviewRequest request) {
         User reviewer = SecurityUtils.getCurrentUser(userRepository);
         JobDescription job = findJobOrThrow(jobId);

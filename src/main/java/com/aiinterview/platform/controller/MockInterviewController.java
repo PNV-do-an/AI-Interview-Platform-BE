@@ -69,4 +69,13 @@ public class MockInterviewController {
         User candidate = SecurityUtils.getCurrentUser(userRepository);
         return ResponseEntity.ok(ApiResponse.success(mockInterviewService.finish(candidate, id)));
     }
+
+    /** DELETE /api/v1/mock-interviews/{id} — xóa phiên luyện của chính mình, không hoàn tác được */
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('USER')")
+    public ResponseEntity<ApiResponse<Void>> deleteSession(@PathVariable Long id) {
+        User candidate = SecurityUtils.getCurrentUser(userRepository);
+        mockInterviewService.deleteSession(candidate, id);
+        return ResponseEntity.ok(ApiResponse.success("Đã xóa phiên luyện tập", null));
+    }
 }

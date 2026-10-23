@@ -17,12 +17,17 @@ public class JwtUtil {
     private static final long EXPIRATION_TIME_ACCESS_TOKEN = 1000 * 60 * 60 * 24;
     private static final long EXPIRATION_TIME_REFRESH_TOKEN =  1000L * 60 * 60 * 24 * 7;
 
-    public static String generateAccessToken(String account, String role) {
+    /**
+     * Access token mang "tv" của phiên đang cấp. JwtFilter đối chiếu claim này với
+     * users.token_version mọi request, nên logout/đổi mật khẩu thu hồi cả access token đang sống
+     * chứ không chỉ refresh token.
+     */
+    public static String generateAccessToken(String account, String role, int tokenVersion) {
 
         String accessToken = Jwts.builder()
                 .setSubject(account)
                 .claim("role", role)
-//                .claim("age",age)
+                .claim("tv", tokenVersion)
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + EXPIRATION_TIME_ACCESS_TOKEN))
                 .signWith(accessKey)
