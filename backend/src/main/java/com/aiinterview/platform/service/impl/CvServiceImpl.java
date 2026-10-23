@@ -22,6 +22,7 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -50,6 +51,7 @@ public class CvServiceImpl implements CvService {
     private String cvUploadDir;
 
     @Override
+    @Transactional
     public CvParseResponse uploadCv(MultipartFile file, User user) {
         String contentType = resolveContentType(file);
         if (contentType == null) {
@@ -71,6 +73,7 @@ public class CvServiceImpl implements CvService {
     }
 
     @Override
+    @Transactional
     public CvParseResponse parseCvText(String cvText, User user) {
         if (cvText == null || cvText.isBlank()) {
             throw new BadRequestException("CV text không được để trống");
@@ -87,6 +90,7 @@ public class CvServiceImpl implements CvService {
     }
 
     @Override
+    @Transactional
     public CvParseResponse setPosition(Long userId, String position, String level) {
         UserCv cv = userCvRepository.findByUserId(userId)
                 .orElseThrow(() -> new ResourceNotFoundException(
@@ -104,7 +108,8 @@ public class CvServiceImpl implements CvService {
     }
 
     private CvParseResponse persistParsed(User user, String rawText, String fileName, String filePath,
-                                          CvParseResponse parsed) {
+                                          CvParseResponse parsed) { // thực hiện so sánh và thực lưu trữ dữ liệu mới hơn
+                                                                    // được đẩy vào
         UserCv cv = userCvRepository.findByUserId(user.getId())
                 .orElseGet(() -> UserCv.builder().user(user).build());
         cv.setRawText(rawText);

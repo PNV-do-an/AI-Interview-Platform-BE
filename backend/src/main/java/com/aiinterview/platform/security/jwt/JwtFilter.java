@@ -28,9 +28,9 @@ public class JwtFilter extends OncePerRequestFilter {
             FilterChain filterChain)
             throws ServletException, IOException {
 
-        String authHeader = request.getHeader("Authorization");
+        String authHeader = request.getHeader("Authorization"); // condition to verify token need to have
 
-        if (authHeader != null && authHeader.toLowerCase().startsWith("bearer ")) {
+        if (authHeader != null && authHeader.toLowerCase().startsWith("bearer ")) { // condition to verify token need to have
             String token = authHeader.substring(7).trim();
 
             // Handle token wrapped in quotes (edge case from some clients)

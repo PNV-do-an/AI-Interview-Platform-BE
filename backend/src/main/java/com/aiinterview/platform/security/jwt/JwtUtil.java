@@ -18,9 +18,9 @@ public class JwtUtil {
     public static String generateAccessToken(String account, String role) {
 
         String accessToken = Jwts.builder()
-                .subject(account)
+                .subject(account) // nội dung của token
                 .claim("role", role)
-                .issuedAt(new Date())
+                .issuedAt(new Date(System.currentTimeMillis())) //  tọa khi nào
                 .expiration(new Date(System.currentTimeMillis() + EXPIRATION_TIME_ACCESS_TOKEN))
                 .signWith(accessKey)
                 .compact();

@@ -16,15 +16,15 @@ public class AuthResponse {
     private String tokenType;
     private UserInfo user;
 
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class UserInfo {
-        private Long id;
-        private String email;
-        private String fullName;
-        private String phone;
-        private String role;
-    }
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public static class UserInfo {
+    private Long id;
+    private String email;
+    private String fullName;
+    private String phone;
+    private String role;
+}
 }
