@@ -115,7 +115,7 @@ public class LoginInterfaceImpl implements LoginInterface {
         user.setLockUntil(null);
         userRepository.save(user);
 
-        String accessToken = JwtUtil.generateAccessToken(user.getEmail(), user.getRole().name());
+        String accessToken = JwtUtil.generateAccessToken(user.getEmail(), user.getRole().name(), user.getTokenVersion());
         String refreshToken = JwtUtil.generateRefreshToken(user.getEmail(), user.getRole().name(), user.getTokenVersion());
 
         return new LoginResponse(accessToken, refreshToken, user.getRole().name());

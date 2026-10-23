@@ -34,6 +34,7 @@ import java.nio.charset.StandardCharsets;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -122,7 +123,7 @@ class ChangePasswordIntegrationTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.message").value("Mật khẩu sai"));
 
-        login(EMAIL, NEW_PASSWORD);
+        String[] fresh = login(EMAIL, NEW_PASSWORD);
 
         mockMvc.perform(post("/api/v1/auth/refresh").with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -131,7 +132,19 @@ class ChangePasswordIntegrationTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.message").value(containsString("Phiên đăng nhập")));
 
-        // Access token cũ vẫn còn hạn theo lịch của nó — chỉ refresh bị thu hồi; test ghi lại hành vi đó.
+        // Access token cũ chết ngay chứ không sống tới hết TTL 24h: JwtFilter so claim "tv"
+        // với users.token_version vừa tăng khi đổi mật khẩu.
+        mockMvc.perform(get("/api/v1/auth/me").with(csrf())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokens[0]))
+                .andDo(print())
+                .andExpect(status().isUnauthorized());
+
+        // Control: token vừa cấp sau lần đăng nhập lại vẫn đi qua filter.
+        mockMvc.perform(get("/api/v1/auth/me").with(csrf())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + fresh[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.email").value(EMAIL));
+
         assertEquals(0, auditLogRepository.count(), "đổi mật khẩu tự thân không ghi audit admin");
     }
 

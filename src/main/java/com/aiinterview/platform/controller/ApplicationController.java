@@ -4,6 +4,9 @@ import com.aiinterview.platform.common.response.ApiResponse;
 import com.aiinterview.platform.model.dto.request.ApplyJobRequest;
 import com.aiinterview.platform.model.dto.request.BookSlotRequest;
 import com.aiinterview.platform.model.dto.request.EvaluateApplicationRequest;
+import com.aiinterview.platform.model.dto.request.RescheduleSlotRequest;
+import com.aiinterview.platform.model.dto.response.ApplicationDetailResponse;
+import com.aiinterview.platform.model.dto.response.ApplicationFunnelResponse;
 import com.aiinterview.platform.model.dto.response.ApplicationResponse;
 import com.aiinterview.platform.service.ApplicationService;
 import jakarta.validation.Valid;
@@ -52,6 +55,22 @@ public class ApplicationController {
         return ResponseEntity.ok(ApiResponse.success("Đặt lịch thành công", applicationService.bookSlot(request)));
     }
 
+    /** PATCH /api/v1/applications/{id}/unschedule — hủy riêng buổi đã đặt, đơn về vòng chờ xếp lịch. */
+    @PatchMapping("/{id}/unschedule")
+    @PreAuthorize("hasAnyRole('USER','INTERVIEWER','ADMIN','STAFF')")
+    public ResponseEntity<ApiResponse<ApplicationResponse>> unschedule(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success("Đã hủy lịch phỏng vấn", applicationService.unschedule(id)));
+    }
+
+    /** PATCH /api/v1/applications/{id}/reschedule — đổi sang khung giờ khác còn trống. */
+    @PatchMapping("/{id}/reschedule")
+    @PreAuthorize("hasAnyRole('USER','INTERVIEWER','ADMIN','STAFF')")
+    public ResponseEntity<ApiResponse<ApplicationResponse>> reschedule(
+            @PathVariable Long id, @Valid @RequestBody RescheduleSlotRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Đã đổi lịch phỏng vấn",
+                applicationService.reschedule(id, request.getSlotId())));
+    }
+
     /** GET /api/v1/applications/jobs/{jobId} — employer views applications for a job */
     @GetMapping("/jobs/{jobId}")
     @PreAuthorize("hasAnyRole('INTERVIEWER','ADMIN','STAFF')")
@@ -77,5 +96,19 @@ public class ApplicationController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(ApiResponse.success(applicationService.adminListApplications(page, size)));
+    }
+
+    /** GET /api/v1/applications/{id} — chi tiết đơn + timeline; note nội bộ chỉ phía tuyển dụng thấy. */
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('USER','INTERVIEWER','ADMIN','STAFF')")
+    public ResponseEntity<ApiResponse<ApplicationDetailResponse>> detail(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(applicationService.getApplicationDetail(id)));
+    }
+
+    /** GET /api/v1/applications/jobs/{jobId}/funnel — phễu ứng tuyển theo vòng (FR-ASM-03). */
+    @GetMapping("/jobs/{jobId}/funnel")
+    @PreAuthorize("hasAnyRole('INTERVIEWER','ADMIN','STAFF')")
+    public ResponseEntity<ApiResponse<ApplicationFunnelResponse>> funnel(@PathVariable Long jobId) {
+        return ResponseEntity.ok(ApiResponse.success(applicationService.getApplicationFunnel(jobId)));
     }
 }

@@ -21,6 +21,10 @@ public interface InterviewSlotRepository extends JpaRepository<InterviewSlot, Lo
 
     Optional<InterviewSlot> findByIdAndCancelledFalse(Long id);
 
+    /** Slots booked for the reminder window [from, to) — FR-SCH-03. */
+    List<InterviewSlot> findByBookedByIsNotNullAndCancelledFalseAndStartTimeGreaterThanEqualAndStartTimeLessThan(
+            LocalDateTime from, LocalDateTime to);
+
     List<InterviewSlot> findByBookedByOrderByStartTimeAsc(User candidate);
 
     Page<InterviewSlot> findByBookedByAndCancelledFalseOrderByStartTimeDesc(User candidate, Pageable pageable);

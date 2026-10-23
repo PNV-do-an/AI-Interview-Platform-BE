@@ -52,6 +52,14 @@ public class JwtFilter extends OncePerRequestFilter {
                     return;
                 }
 
+                // Claim "tv" phải khớp phiên hiện hành: logout/đổi mật khẩu tăng token_version thì
+                // access token còn hạn cũng bị coi như không đăng nhập.
+                Integer tokenVersion = claims.get("tv", Integer.class);
+                if (tokenVersion == null || tokenVersion != user.getTokenVersion()) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
                 var auth = new UsernamePasswordAuthenticationToken(
                         userDetails, null, userDetails.getAuthorities());
 

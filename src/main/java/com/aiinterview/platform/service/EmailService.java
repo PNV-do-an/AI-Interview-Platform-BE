@@ -22,5 +22,8 @@ public interface EmailService {
 
     void sendSlotBookedEmail(String to, String name, String jobTitle, String startTime, String role);
 
+    /** FR-SCH-03: nhắc trước giờ hẹn, nội dung khác email xác nhận vì lịch đã xác nhận từ lần đặt. */
+    void sendInterviewReminderEmail(String to, String name, String jobTitle, String startTime, String role);
+
     void sendOrderConfirmationEmail(String to, String fullName, String packageName, Long amount, String orderCode);
 }
