@@ -3,6 +3,7 @@ package com.aiinterview.platform.security.jwt;
 import com.aiinterview.platform.common.exception.InvalidAccountException;
 import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.service.UserService;
+import com.aiinterview.platform.service.UserSessionService;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -20,7 +21,11 @@ import java.io.IOException;
 @RequiredArgsConstructor
 public class JwtFilter extends OncePerRequestFilter {
 
+    /** Controller đọc thuộc tính này để biết request đang mang phiên nào (logout, danh sách thiết bị). */
+    public static final String SESSION_ID_ATTRIBUTE = "aiinterview.sessionId";
+
     private final UserService userService;
+    private final UserSessionService userSessionService;
 
     @Override
     protected void doFilterInternal(
@@ -41,7 +46,20 @@ public class JwtFilter extends OncePerRequestFilter {
 
             try {
                 var claims = JwtUtil.validateAccessToken(token);
+                // Challenge token 2FA ký bằng đúng access key — không được cấp quyền truy cập API.
+                if (claims.get("purpose", String.class) != null) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
                 String email = claims.getSubject();
+                String sessionId = claims.get("sid", String.class);
+
+                // Phiên đã thu hồi (logout, đổi mật khẩu, admin khóa tài khoản) mất quyền ngay,
+                // không đợi access token hết hạn 24h.
+                if (!userSessionService.isLive(sessionId)) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
 
                 // Load full User entity so @AuthenticationPrincipal User works in controllers
                 UserDetails userDetails = userService.loadUserByUsername(email);
@@ -64,6 +82,11 @@ public class JwtFilter extends OncePerRequestFilter {
                         userDetails, null, userDetails.getAuthorities());
 
                 SecurityContextHolder.getContext().setAuthentication(auth);
+
+                if (sessionId != null) {
+                    request.setAttribute(SESSION_ID_ATTRIBUTE, sessionId);
+                    userSessionService.touch(sessionId);
+                }
 
             } catch (JwtException | UsernameNotFoundException | InvalidAccountException e) {
                 // Invalid token or user no longer exists — continue without authentication

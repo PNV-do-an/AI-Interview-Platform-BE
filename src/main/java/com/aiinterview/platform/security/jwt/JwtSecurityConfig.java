@@ -2,6 +2,7 @@ package com.aiinterview.platform.security.jwt;
 
 import com.aiinterview.platform.model.entity.ErrorModel;
 import com.aiinterview.platform.service.UserService;
+import com.aiinterview.platform.service.UserSessionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,7 @@ import java.util.List;
 public class JwtSecurityConfig {
 
     private final UserService userService;
+    private final UserSessionService userSessionService;
     private final ObjectMapper objectMapper;
 
     @Value("${cors.allowed-origins:http://localhost:3000}")
@@ -57,7 +59,7 @@ public class JwtSecurityConfig {
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
                 .addFilterBefore(
-                        new JwtFilter(userService),
+                        new JwtFilter(userService, userSessionService),
                         UsernamePasswordAuthenticationFilter.class
                 )
                 .build();

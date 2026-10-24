@@ -11,6 +11,7 @@ import com.aiinterview.platform.model.repository.UserRepository;
 import com.aiinterview.platform.security.jwt.JwtUtil;
 import com.aiinterview.platform.security.utils.SecurityUtils;
 import com.aiinterview.platform.service.LoginInterface;
+import com.aiinterview.platform.service.UserSessionService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -26,6 +27,7 @@ public class LoginInterfaceImpl implements LoginInterface {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final LoginAttemptRepository loginAttemptRepository;
+    private final UserSessionService userSessionService;
 
     @Override
     @Transactional(noRollbackFor = {
@@ -110,13 +112,21 @@ public class LoginInterfaceImpl implements LoginInterface {
             throw new InvalidPasswordException("Mật khẩu sai");
         }
 
+        // Mật khẩu đúng mới tới bước hai. Chưa qua OTP thì chưa được tính là một lần đăng nhập
+        // thành công: không ghi attempt success, không reset counter.
+        if (user.isTotpEnabled()) {
+            return LoginResponse.mfaChallenge(JwtUtil.generate2faChallengeToken(user.getEmail()));
+        }
+
         loginAttemptRepository.save(new LoginAttempt(email, ipClient, true));
         user.setLoginAttempts(0);
         user.setLockUntil(null);
         userRepository.save(user);
 
-        String accessToken = JwtUtil.generateAccessToken(user.getEmail(), user.getRole().name(), user.getTokenVersion());
-        String refreshToken = JwtUtil.generateRefreshToken(user.getEmail(), user.getRole().name(), user.getTokenVersion());
+        String accessToken = JwtUtil.generateAccessToken(
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
+        String refreshToken = JwtUtil.generateRefreshToken(
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
 
         return new LoginResponse(accessToken, refreshToken, user.getRole().name());
     }

@@ -2,6 +2,7 @@ package com.aiinterview.platform.controller;
 
 import com.aiinterview.platform.common.exception.BadRequestException;
 import com.aiinterview.platform.common.response.ApiResponse;
+import com.aiinterview.platform.model.dto.request.AdminDisable2faRequest;
 import com.aiinterview.platform.model.dto.request.AdminInviteUserRequest;
 import com.aiinterview.platform.model.dto.request.AdminUpdateProfileRequest;
 import com.aiinterview.platform.model.dto.request.AuditLogQuery;
@@ -224,6 +225,15 @@ public class AdminUserController {
             @Valid @RequestBody ChangeRoleRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Vai trò đã được cập nhật",
                 adminUserService.changeRole(id, request.getRole())));
+    }
+
+    /** PATCH /api/v1/admin/users/{id}/2fa — force-disable 2FA (user mất thiết bị), bắt buộc lý do. */
+    @PatchMapping("/users/{id}/2fa")
+    public ResponseEntity<ApiResponse<UserDetailResponse>> disable2fa(
+            @PathVariable Long id,
+            @Valid @RequestBody AdminDisable2faRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Đã tắt 2FA của tài khoản",
+                adminUserService.disableUserTwoFactor(id, request.getReason())));
     }
 
     /**

@@ -23,6 +23,8 @@ public class UserDetailResponse {
     private LocalDateTime lockedAt;
     /** True while the verification link has never been used (same rule as the list, Clarify C-2). */
     private boolean pendingVerification;
+    /** TOTP second factor active on this account — the "2FA Đã kích hoạt" chip in the console. */
+    private boolean twoFactorEnabled;
     /** Until when login is blocked by failed password attempts; null when that block is not active. */
     private LocalDateTime blockedUntil;
     private int failedLoginAttempts;
@@ -72,6 +74,7 @@ public class UserDetailResponse {
                 .locked(user.isLocked())
                 .lockedAt(user.getLockedAt())
                 .pendingVerification(user.getVerificationToken() != null)
+                .twoFactorEnabled(user.isTotpEnabled())
                 .blockedUntil(blockUntil != null && blockUntil.isAfter(LocalDateTime.now()) ? blockUntil : null)
                 .failedLoginAttempts(user.getLoginAttempts())
                 .status(resolveStatus(user))

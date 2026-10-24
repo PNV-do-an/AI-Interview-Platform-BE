@@ -58,6 +58,12 @@ public interface AdminUserService {
     UserDetailResponse changeRole(Long targetUserId, Role newRole);
 
     /**
+     * Force-disable a member's 2FA (lost device case). Clears secret and burns every recovery
+     * code; the reason lands in admin_audit_log.
+     */
+    UserDetailResponse disableUserTwoFactor(Long targetUserId, String reason);
+
+    /**
      * Create an account on the member's behalf (Clarify C-4: no password comes through the API).
      * The account is inactive until the invited person uses the link in the invitation email.
      */
