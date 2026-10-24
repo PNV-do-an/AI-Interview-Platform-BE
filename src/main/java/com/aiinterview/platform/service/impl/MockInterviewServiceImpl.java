@@ -140,6 +140,15 @@ public class MockInterviewServiceImpl implements MockInterviewService {
                         answerRepository.findBySessionOrderByQuestionIndexAsc(s).size()));
     }
 
+    @Override
+    @Transactional
+    public void deleteSession(User candidate, Long sessionId) {
+        InterviewSession session = ownSession(candidate, sessionId);
+        // interview_answers giữ FK session_id nên phải xóa trước, nếu không DB chặn.
+        answerRepository.deleteAll(answerRepository.findBySessionOrderByQuestionIndexAsc(session));
+        sessionRepository.delete(session);
+    }
+
     private InterviewSession ownSession(User candidate, Long sessionId) {
         InterviewSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phiên phỏng vấn"));

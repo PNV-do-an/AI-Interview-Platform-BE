@@ -243,6 +243,19 @@ public class EmailServiceImpl implements EmailService {
     }
 
     @Override
+    public void sendInterviewReminderEmail(String to, String name, String jobTitle, String startTime, String role) {
+        try {
+            send(to, "Nhắc lịch phỏng vấn: " + jobTitle,
+                    "Xin chào " + name + ",\n\n"
+                            + "Buổi phỏng vấn cho vị trí \"" + jobTitle + "\" vào lúc " + startTime
+                            + " sắp bắt đầu (" + role + ").\n"
+                            + "Vui lòng vào sớm 5 phút để kiểm tra đường truyền.");
+        } catch (Exception e) {
+            // notification email must not break the reminder job
+        }
+    }
+
+    @Override
     public void sendOrderConfirmationEmail(String to, String fullName, String packageName, Long amount, String orderCode) {
         try {
             String amountText = String.format("%,d", amount).replace(',', '.');

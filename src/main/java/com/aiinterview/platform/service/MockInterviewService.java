@@ -19,4 +19,7 @@ public interface MockInterviewService {
     InterviewResultResponse getResult(User candidate, Long sessionId);
 
     Page<InterviewSessionResponse> getMySessions(User candidate, int page, int size);
+
+    /** Xóa hẳn một phiên luyện của chính ứng viên kèm câu trả lời của nó. */
+    void deleteSession(User candidate, Long sessionId);
 }

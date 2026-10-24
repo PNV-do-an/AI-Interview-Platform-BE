@@ -11,8 +11,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Màn "Danh mục & Ngành nghề" của admin console (spec 009 FR-008). Đọc, không ghi:
- * bốn khóa phân loại vẫn là chuỗi tự do trên từng tin, chưa có bảng danh mục chuẩn.
+ * Màn "Danh mục & Ngành nghề" của admin console (spec 009 FR-008).
+ * Chỉ đọc qua GET vì schema vẫn là chuỗi tự do, không phải enum/bảng chuẩn.
  */
 @RestController
 @RequestMapping("/api/v1/admin/categories")

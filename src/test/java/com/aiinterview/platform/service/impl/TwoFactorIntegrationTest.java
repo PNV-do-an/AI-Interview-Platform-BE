@@ -95,7 +95,8 @@ class TwoFactorIntegrationTest {
     }
 
     private String bearerFor(User user) {
-        return "Bearer " + JwtUtil.generateAccessToken(user.getEmail(), user.getRole().name(), null);
+        return "Bearer " + JwtUtil.generateAccessToken(
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
     }
 
     /** setup + enable qua API thật, trả về secret đã bật thành công. */

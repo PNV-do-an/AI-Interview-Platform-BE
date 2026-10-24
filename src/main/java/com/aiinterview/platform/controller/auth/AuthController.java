@@ -34,6 +34,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -136,8 +137,10 @@ public class AuthController {
                                                                   HttpServletRequest httpRequest) {
         User user = googleAuthInterface.loginWithGoogle(request.getIdToken(), httpRequest);
 
-        String accessToken = JwtUtil.generateAccessToken(user.getEmail(), user.getRole().name(), null);
-        String refreshToken = JwtUtil.generateRefreshToken(user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
+        String accessToken = JwtUtil.generateAccessToken(
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
+        String refreshToken = JwtUtil.generateRefreshToken(
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
 
         AuthResponse authResponse = AuthResponse.builder()
                 .accessToken(accessToken)
@@ -160,8 +163,10 @@ public class AuthController {
                                                                   HttpServletRequest httpRequest) {
         User user = githubAuthInterface.loginWithGithub(request.getCode(), request.getRedirectUri(), httpRequest);
 
-        String accessToken = JwtUtil.generateAccessToken(user.getEmail(), user.getRole().name(), null);
-        String refreshToken = JwtUtil.generateRefreshToken(user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
+        String accessToken = JwtUtil.generateAccessToken(
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
+        String refreshToken = JwtUtil.generateRefreshToken(
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
 
         AuthResponse authResponse = AuthResponse.builder()
                 .accessToken(accessToken)
@@ -183,8 +188,10 @@ public class AuthController {
     public ResponseEntity<ApiResponse<AuthResponse>> ssoLogin(@Valid @RequestBody SsoLoginRequest request) {
         User user = ssoAuthInterface.loginWithSso(request.getCode(), request.getRedirectUri(), request.getNonce());
 
-        String accessToken = JwtUtil.generateAccessToken(user.getEmail(), user.getRole().name(), null);
-        String refreshToken = JwtUtil.generateRefreshToken(user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
+        String accessToken = JwtUtil.generateAccessToken(
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
+        String refreshToken = JwtUtil.generateRefreshToken(
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
 
         AuthResponse authResponse = AuthResponse.builder()
                 .accessToken(accessToken)
@@ -209,7 +216,7 @@ public class AuthController {
             throw new InvalidAccountException("Phiên đăng nhập không còn hiệu lực. Vui lòng đăng nhập lại.");
         }
 
-        LoginResponse lr = JwtUtils.refreshAccessToken(refreshToken, claims.get("sid", String.class));
+        LoginResponse lr = JwtUtils.refreshAccessToken(refreshToken, currentVersion);
         AuthResponse authResponse = AuthResponse.builder()
                 .accessToken(lr.getAccessToken())
                 .refreshToken(lr.getRefreshToken())
@@ -277,5 +284,17 @@ public class AuthController {
         var user = userService.findByEmail(authentication.getName());
         AuthResponse.UserInfo userInfo = userInfoOf(user);
         return ResponseEntity.ok(ApiResponse.success(userInfo));
+    }
+
+    /**
+     * POST /api/v1/auth/logout — thu hồi ngay mọi phiên của tài khoản đang đăng nhập.
+     * JWT stateless nên không có blacklist: tokenVersion++ làm claim "tv" trong cả access
+     * lẫn refresh token cũ lệch với users.token_version, JwtFilter chặn từ cửa, /refresh hết đường.
+     */
+    @PostMapping("/logout")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Void>> logout(Authentication authentication) {
+        userService.revokeSessions(authentication.getName());
+        return ResponseEntity.ok(ApiResponse.success("Đã đăng xuất mọi phiên", null));
     }
 }

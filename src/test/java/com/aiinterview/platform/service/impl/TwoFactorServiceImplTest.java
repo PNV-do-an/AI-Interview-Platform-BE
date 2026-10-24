@@ -187,7 +187,7 @@ class TwoFactorServiceImplTest {
     @Test
     void verifyLoginOtpRejectsPlainAccessTokenAsChallenge() {
         // Token thường (không có claim purpose) không được đổi được JWT qua /verify-otp.
-        String accessToken = JwtUtil.generateAccessToken(EMAIL, Role.ROLE_USER.name(), null);
+        String accessToken = JwtUtil.generateAccessToken(EMAIL, Role.ROLE_USER.name(), 0, null);
 
         assertThrows(InvalidAccountException.class,
                 () -> service.verifyLoginOtp(accessToken, "123456", request("203.0.113.9")));

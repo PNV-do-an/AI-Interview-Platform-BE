@@ -48,7 +48,17 @@ public class UserServiceImpl implements UserService {
         }
         validateNewPassword(request.getNewPassword());
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
-        // Thu hồi mọi phiên: refresh token chết ngay, access token hết hạn theo lịch của nó.
+        // Thu hồi mọi phiên: claim "tv" trong access lẫn refresh token cũ lệch với cột này nên
+        // JwtFilter từ chối ngay, không phải chờ access token hết hạn.
+        user.setTokenVersion(user.getTokenVersion() + 1);
+        userRepository.save(user);
+    }
+
+    @Override
+    @Transactional
+    public void revokeSessions(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new InvalidAccountException("User not found with email: " + email));
         user.setTokenVersion(user.getTokenVersion() + 1);
         userRepository.save(user);
     }
