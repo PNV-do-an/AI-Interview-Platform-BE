@@ -31,6 +31,7 @@ import com.aiinterview.platform.model.repository.CandidateProfileRepository;
 import com.aiinterview.platform.model.repository.InterviewSessionRepository;
 import com.aiinterview.platform.model.repository.InterviewSlotRepository;
 import com.aiinterview.platform.model.repository.LoginAttemptRepository;
+import com.aiinterview.platform.model.repository.RecoveryCodeRepository;
 import com.aiinterview.platform.model.repository.UserRepository;
 import com.aiinterview.platform.service.AdminUserService;
 import com.aiinterview.platform.service.EmailService;
@@ -82,6 +83,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     private final UserRepository userRepository;
     private final AdminAuditLogRepository auditLogRepository;
     private final LoginAttemptRepository loginAttemptRepository;
+    private final RecoveryCodeRepository recoveryCodeRepository;
     private final CandidateProfileRepository candidateProfileRepository;
     private final ApplicationRepository applicationRepository;
     private final InterviewSessionRepository interviewSessionRepository;
@@ -477,8 +479,27 @@ public class AdminUserServiceImpl implements AdminUserService {
         });
     }
 
-    // ── invitations & profile edits (plan 002, Lô B) ─────────────────────────
+    @Override
+    @Transactional
+    public UserDetailResponse disableUserTwoFactor(Long targetUserId, String reason) {
+        User admin = requireAdmin();
+        return attempt(admin, targetUserId, AuditAction.DISABLE_2FA, () -> {
+            User target = findLiveUserOrThrow(targetUserId);
+            if (!target.isTotpEnabled()) {
+                throw new BadRequestException("Tài khoản chưa bật 2FA");
+            }
+            target.setTotpEnabled(false);
+            target.setTotpSecret(null);
+            userRepository.save(target);
+            // Mất thiết bị thì recovery codes cũng không còn nghĩa gì — thu hồi hết.
+            recoveryCodeRepository.deleteByUserId(target.getId());
+            saveAuditLog(admin, targetUserId, AuditAction.DISABLE_2FA,
+                    "Tắt 2FA buộc: " + target.getEmail() + " | lý do: " + reason);
+            return UserDetailResponse.from(target);
+        });
+    }
 
+    // ── invitations & profile edits (plan 002, Lô B) ─────────────────────────
     @Override
     @Transactional
     public UserDetailResponse inviteUser(AdminInviteUserRequest request) {

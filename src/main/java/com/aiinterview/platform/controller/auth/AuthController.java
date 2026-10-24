@@ -8,6 +8,7 @@ import com.aiinterview.platform.model.dto.request.LoginRequest;
 import com.aiinterview.platform.model.dto.request.RegisterRequest;
 import com.aiinterview.platform.model.dto.request.ResetPasswordRequest;
 import com.aiinterview.platform.model.dto.request.SsoLoginRequest;
+import com.aiinterview.platform.model.dto.request.VerifyOtpRequest;
 import com.aiinterview.platform.model.dto.response.AuthResponse;
 import com.aiinterview.platform.model.dto.response.LoginResponse;
 import com.aiinterview.platform.model.dto.response.PasswordResetResponse;
@@ -23,6 +24,7 @@ import com.aiinterview.platform.service.LoginInterface;
 import com.aiinterview.platform.service.PasswordResetService;
 import com.aiinterview.platform.service.RegisterInterface;
 import com.aiinterview.platform.service.SsoAuthInterface;
+import com.aiinterview.platform.service.TwoFactorService;
 import com.aiinterview.platform.service.UserService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
@@ -49,6 +51,7 @@ public class AuthController {
     private final GoogleAuthInterface googleAuthInterface;
     private final GithubAuthInterface githubAuthInterface;
     private final SsoAuthInterface ssoAuthInterface;
+    private final TwoFactorService twoFactorService;
 
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<AuthResponse>> register(@Valid @RequestBody RegisterRequest request,
@@ -68,21 +71,57 @@ public class AuthController {
         LoginResponse response = loginInterface.login(
                 request.getEmail(), request.getPassword(), httpRequest
         );
+
+        // Mật khẩu đúng nhưng tài khoản bật 2FA: chưa cấp JWT, FE nộp OTP lên /auth/verify-otp.
+        if (response.isMfaRequired()) {
+            AuthResponse challenge = AuthResponse.builder()
+                    .tokenType("Bearer")
+                    .mfaRequired(true)
+                    .challengeToken(response.getChallengeToken())
+                    .build();
+            return ResponseEntity.ok(ApiResponse.success("Cần mã xác thực hai yếu tố", challenge));
+        }
+
         // Load user info để trả về AuthResponse đầy đủ cho frontend
         var user = userService.findByEmail(request.getEmail());
         AuthResponse authResponse = AuthResponse.builder()
                 .accessToken(response.getAccessToken())
                 .refreshToken(response.getRefreshToken())
                 .tokenType("Bearer")
-                .user(AuthResponse.UserInfo.builder()
-                        .id(user.getId())
-                        .email(user.getEmail())
-                        .fullName(user.getFullName())
-                        .phone(user.getPhone())
-                        .role(user.getRole().name())
-                        .build())
+                .user(userInfoOf(user))
                 .build();
         return ResponseEntity.ok(ApiResponse.success("Đăng nhập thành công", authResponse));
+    }
+
+    /** POST /api/v1/auth/verify-otp — bước hai đăng nhập: challenge token + OTP/recovery code → JWT. */
+    @PostMapping("/verify-otp")
+    public ResponseEntity<ApiResponse<AuthResponse>> verifyOtp(@Valid @RequestBody VerifyOtpRequest request,
+                                                               HttpServletRequest httpRequest) {
+        LoginResponse response = twoFactorService.verifyLoginOtp(
+                request.getChallengeToken(), request.getCode(), httpRequest);
+        var user = userService.findByEmail(responseEmail(response));
+        AuthResponse authResponse = AuthResponse.builder()
+                .accessToken(response.getAccessToken())
+                .refreshToken(response.getRefreshToken())
+                .tokenType("Bearer")
+                .user(userInfoOf(user))
+                .build();
+        return ResponseEntity.ok(ApiResponse.success("Đăng nhập thành công", authResponse));
+    }
+
+    private static String responseEmail(LoginResponse response) {
+        return JwtUtil.validateAccessToken(response.getAccessToken()).getSubject();
+    }
+
+    private static AuthResponse.UserInfo userInfoOf(User user) {
+        return AuthResponse.UserInfo.builder()
+                .id(user.getId())
+                .email(user.getEmail())
+                .fullName(user.getFullName())
+                .phone(user.getPhone())
+                .role(user.getRole().name())
+                .twoFactorEnabled(user.isTotpEnabled())
+                .build();
     }
 
     /** GET /api/v1/auth/google/client-id — frontend hỏi OAuth client ID (rỗng = chưa bật) */
@@ -97,20 +136,14 @@ public class AuthController {
                                                                   HttpServletRequest httpRequest) {
         User user = googleAuthInterface.loginWithGoogle(request.getIdToken(), httpRequest);
 
-        String accessToken = JwtUtil.generateAccessToken(user.getEmail(), user.getRole().name());
-        String refreshToken = JwtUtil.generateRefreshToken(user.getEmail(), user.getRole().name(), user.getTokenVersion());
+        String accessToken = JwtUtil.generateAccessToken(user.getEmail(), user.getRole().name(), null);
+        String refreshToken = JwtUtil.generateRefreshToken(user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
 
         AuthResponse authResponse = AuthResponse.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
                 .tokenType("Bearer")
-                .user(AuthResponse.UserInfo.builder()
-                        .id(user.getId())
-                        .email(user.getEmail())
-                        .fullName(user.getFullName())
-                        .phone(user.getPhone())
-                        .role(user.getRole().name())
-                        .build())
+                .user(userInfoOf(user))
                 .build();
         return ResponseEntity.ok(ApiResponse.success("Đăng nhập thành công", authResponse));
     }
@@ -127,20 +160,14 @@ public class AuthController {
                                                                   HttpServletRequest httpRequest) {
         User user = githubAuthInterface.loginWithGithub(request.getCode(), request.getRedirectUri(), httpRequest);
 
-        String accessToken = JwtUtil.generateAccessToken(user.getEmail(), user.getRole().name());
-        String refreshToken = JwtUtil.generateRefreshToken(user.getEmail(), user.getRole().name(), user.getTokenVersion());
+        String accessToken = JwtUtil.generateAccessToken(user.getEmail(), user.getRole().name(), null);
+        String refreshToken = JwtUtil.generateRefreshToken(user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
 
         AuthResponse authResponse = AuthResponse.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
                 .tokenType("Bearer")
-                .user(AuthResponse.UserInfo.builder()
-                        .id(user.getId())
-                        .email(user.getEmail())
-                        .fullName(user.getFullName())
-                        .phone(user.getPhone())
-                        .role(user.getRole().name())
-                        .build())
+                .user(userInfoOf(user))
                 .build();
         return ResponseEntity.ok(ApiResponse.success("Đăng nhập thành công", authResponse));
     }
@@ -156,20 +183,14 @@ public class AuthController {
     public ResponseEntity<ApiResponse<AuthResponse>> ssoLogin(@Valid @RequestBody SsoLoginRequest request) {
         User user = ssoAuthInterface.loginWithSso(request.getCode(), request.getRedirectUri(), request.getNonce());
 
-        String accessToken = JwtUtil.generateAccessToken(user.getEmail(), user.getRole().name());
-        String refreshToken = JwtUtil.generateRefreshToken(user.getEmail(), user.getRole().name(), user.getTokenVersion());
+        String accessToken = JwtUtil.generateAccessToken(user.getEmail(), user.getRole().name(), null);
+        String refreshToken = JwtUtil.generateRefreshToken(user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
 
         AuthResponse authResponse = AuthResponse.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
                 .tokenType("Bearer")
-                .user(AuthResponse.UserInfo.builder()
-                        .id(user.getId())
-                        .email(user.getEmail())
-                        .fullName(user.getFullName())
-                        .phone(user.getPhone())
-                        .role(user.getRole().name())
-                        .build())
+                .user(userInfoOf(user))
                 .build();
         return ResponseEntity.ok(ApiResponse.success("Đăng nhập thành công", authResponse));
     }
@@ -188,18 +209,12 @@ public class AuthController {
             throw new InvalidAccountException("Phiên đăng nhập không còn hiệu lực. Vui lòng đăng nhập lại.");
         }
 
-        LoginResponse lr = JwtUtils.refreshAccessToken(refreshToken);
+        LoginResponse lr = JwtUtils.refreshAccessToken(refreshToken, claims.get("sid", String.class));
         AuthResponse authResponse = AuthResponse.builder()
                 .accessToken(lr.getAccessToken())
                 .refreshToken(lr.getRefreshToken())
                 .tokenType("Bearer")
-                .user(AuthResponse.UserInfo.builder()
-                        .id(user.getId())
-                        .email(user.getEmail())
-                        .fullName(user.getFullName())
-                        .phone(user.getPhone())
-                        .role(user.getRole().name())
-                        .build())
+                .user(userInfoOf(user))
                 .build();
         return ResponseEntity.ok(ApiResponse.success("Token refreshed", authResponse));
     }
@@ -260,13 +275,7 @@ public class AuthController {
             throw new InvalidAccountException("Yêu cầu đăng nhập");
         }
         var user = userService.findByEmail(authentication.getName());
-        AuthResponse.UserInfo userInfo = AuthResponse.UserInfo.builder()
-                .id(user.getId())
-                .email(user.getEmail())
-                .fullName(user.getFullName())
-                .phone(user.getPhone())
-                .role(user.getRole().name())
-                .build();
+        AuthResponse.UserInfo userInfo = userInfoOf(user);
         return ResponseEntity.ok(ApiResponse.success(userInfo));
     }
 }

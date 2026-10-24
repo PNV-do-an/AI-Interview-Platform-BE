@@ -76,6 +76,15 @@ public class User implements UserDetails {
 
     private LocalDateTime lockUntil;
 
+    /** TOTP second factor is required at login. */
+    @Column(name = "totp_enabled", nullable = false)
+    @Builder.Default
+    private boolean totpEnabled = false;
+
+    /** Base32 shared secret; set at 2FA setup, cleared when 2FA is disabled. */
+    @Column(name = "totp_secret", length = 64)
+    private String totpSecret;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

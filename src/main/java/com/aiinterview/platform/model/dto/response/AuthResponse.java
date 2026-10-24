@@ -15,6 +15,10 @@ public class AuthResponse {
     private String refreshToken;
     private String tokenType;
     private UserInfo user;
+    /** true = mật khẩu đúng nhưng còn chặn bước hai; accessToken/refreshToken sẽ null. */
+    private boolean mfaRequired;
+    /** Token sống 5 phút, chỉ đổi được lấy JWT qua POST /auth/verify-otp. */
+    private String challengeToken;
 
     @Data
     @Builder
@@ -26,5 +30,6 @@ public class AuthResponse {
         private String fullName;
         private String phone;
         private String role;
+        private boolean twoFactorEnabled;
     }
 }
