@@ -9,6 +9,9 @@ spring:
       max-file-size: 10MB
       max-request-size: 10MB
   jpa:
+    # Tắt Open Session In View: lazy loading ngoài transaction sẽ fail ngay khi dev,
+    # thay vì âm thầm chạy SQL trong lúc serialize response.
+    open-in-view: false
     hibernate:
       ddl-auto: update
     show-sql: false

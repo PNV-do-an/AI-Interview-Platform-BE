@@ -4,8 +4,8 @@ import com.aiinterview.platform.common.response.ApiResponse;
 import com.aiinterview.platform.model.dto.request.CvTextRequest;
 import com.aiinterview.platform.model.dto.request.SetPositionRequest;
 import com.aiinterview.platform.model.dto.response.CvParseResponse;
+import com.aiinterview.platform.model.dto.response.SkillResponse;
 import com.aiinterview.platform.model.entity.User;
-import com.aiinterview.platform.model.entity.UserSkill;
 import com.aiinterview.platform.service.CvService;
 import com.aiinterview.platform.service.UserService;
 import jakarta.validation.Valid;
@@ -64,9 +64,9 @@ public class CvController {
                 cvService.setPosition(user.getId(), request.getPosition(), request.getLevel())));
     }
 
-    /** GET /api/v1/cv/skills — danh sách kỹ năng từ CV */
+    /** GET /api/v1/cv/skills — danh sách kỹ năng từ CV (trả DTO, không trả entity) */
     @GetMapping("/skills")
-    public ResponseEntity<ApiResponse<List<UserSkill>>> getSkills(Authentication authentication) {
+    public ResponseEntity<ApiResponse<List<SkillResponse>>> getSkills(Authentication authentication) {
         User user = currentUser(authentication);
         return ResponseEntity.ok(ApiResponse.success(cvService.getCvSkills(user.getId())));
     }
