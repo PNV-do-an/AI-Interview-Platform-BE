@@ -1,0 +1,19 @@
+$kind: http-request
+url: http://localhost:8080/api/v1/auth/register
+method: POST
+body:
+  type: json
+  content: "\r
+
+    {\r
+
+    \  \"fullName\": \"NamK\",\r
+
+    \  \"email\": \"nam.leitdragon@gmail.com\",\r
+
+    \  \"password\": \"12345689Nn!\",\r
+
+    \  \"phone\": \"0987654321\"\r
+
+    }"
+order: 4000

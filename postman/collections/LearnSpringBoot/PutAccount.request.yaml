@@ -1,0 +1,25 @@
+$kind: http-request
+url: http://localhost:8080/api/accounts
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"id\": 0,\r
+
+    \  \"username\": \"A\",\r
+
+    \  \"email\": \"A@gmail.com\",\r
+
+    \  \"fullName\": \"NAM\",\r
+
+    \  \"password\": \"12344\",\r
+
+    \  \"department\": {},\r
+
+    \  \"position\": {},\r
+
+    \  \"status\": false\r
+
+    }"
+order: 1791463111693

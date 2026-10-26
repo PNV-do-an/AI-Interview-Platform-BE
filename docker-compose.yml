@@ -48,6 +48,10 @@ services:
       MAIL_STARTTLS: ${MAIL_STARTTLS:-true}
       MAIL_TEST_CONNECTION: ${MAIL_TEST_CONNECTION:-false}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
+      AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
+      AI_EVAL_MODEL: ${AI_EVAL_MODEL:-gpt-4o-mini}
       CV_UPLOAD_DIR: ${CV_UPLOAD_DIR:-./uploads/cv}
       AUDIO_UPLOAD_DIR: ${AUDIO_UPLOAD_DIR:-./uploads/audio}
     ports:

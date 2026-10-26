@@ -5,11 +5,11 @@ import ProtectedRoute from './views/components/ProtectedRoute';
 import LoginPage from './views/pages/LoginPage';
 import RegisterPage from './views/pages/RegisterPage';
 import DashboardPage from './views/pages/DashboardPage';
+import CvPage from './views/pages/CvPage';
 import AdminUserManagementPage from './views/pages/AdminUserManagementPage';
 import UnauthorizedPage from './views/pages/UnauthorizedPage';
 import ForgotPasswordPage from './views/pages/ForgotPasswordPage';
 import ResetPasswordPage from './views/pages/ResetPasswordPage';
-import CvPage from './views/pages/CvPage';
 
 const App: React.FC = () => {
   return (

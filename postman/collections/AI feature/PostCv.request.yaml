@@ -1,0 +1,17 @@
+$kind: http-request
+url: http://localhost:8080/api/v1/cv/upload
+method: POST
+body:
+  type: formdata
+  content:
+    - type: file
+      key: file
+      src:
+        - postman-cloud:///1f1cb108-8fdd-4d90-b25c-b758cedf2c52
+      description: ""
+      disabled: false
+auth:
+  type: bearer
+  credentials:
+    token: '"{{json_web_token_0ldm}}"'
+order: 3000

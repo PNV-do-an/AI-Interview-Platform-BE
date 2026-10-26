@@ -1,0 +1,19 @@
+$kind: http-request
+name: LearnAPI
+description: ""
+url: http://localhost:8080/index
+method: GET
+body:
+  type: json
+  content: "{\r
+
+    \    \"fullName\": \"Nam Le\",\r
+
+    \    \"email\": \"nam@gmail.com\",\r
+
+    \    \"password\": \"123456\",\r
+
+    \    \"phone\": \"0123456789\"\r
+
+    }"
+order: 1791463109693

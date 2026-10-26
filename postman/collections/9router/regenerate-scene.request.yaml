@@ -1,0 +1,18 @@
+$kind: http-request
+url: http://localhost:8080/api/scripts/8/regenerate
+method: POST
+body:
+  type: json
+  content: "\r
+
+    {\r
+
+    \  \"sceneId\": 14,\r
+
+    \  \"action\": \"reject\",\r
+
+    \  \"comment\": \"Tôi cần nó chi tiết hơn \"\r
+
+    }"
+order: 4000
+examples: './.resources/regenerate-scene.resources/examples/'

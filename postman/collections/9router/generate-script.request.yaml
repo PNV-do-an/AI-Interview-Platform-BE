@@ -1,0 +1,14 @@
+$kind: http-request
+url: http://localhost:8080/api/scripts/import/from-text
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"content\": \"Tôi làm video ngắn về cách xây nhà, mô tả ngắn gọn \",\r
+
+    \  \"title\": \"XÂY NHÀ TRONG 5S\"\r
+
+    }"
+order: 5000
+examples: './.resources/generate-script.resources/examples/'

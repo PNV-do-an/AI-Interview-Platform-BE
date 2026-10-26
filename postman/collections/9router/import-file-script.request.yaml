@@ -1,0 +1,15 @@
+$kind: http-request
+url: http://localhost:8080/api/scripts/import/from-file?file
+method: POST
+queryParams:
+  file: null
+body:
+  type: formdata
+  content:
+    - type: file
+      key: file
+      src:
+        - postman-cloud:///1f1cdbf5-d01e-4950-9207-4b6f3f93f549
+      description: ""
+      disabled: false
+order: 1000

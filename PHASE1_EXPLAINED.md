@@ -1,4 +1,4 @@
-# Phase 1 – Foundation: Giải thích chi tiết từng file
+ # Phase 1 – Foundation: Giải thích chi tiết từng file
 
 Tài liệu này giải thích **mục đích và logic của từng file** đã tạo/sửa trong Phase 1 (CV analysis + AI foundation). Trạng thái hiện tại: hoàn thành code + smoke test, **chưa commit**.
 

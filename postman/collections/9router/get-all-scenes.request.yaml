@@ -1,0 +1,13 @@
+$kind: http-request
+url: http://localhost:8080/api/scripts/8
+method: GET
+body:
+  type: formdata
+  content:
+    - type: text
+      key: projectId
+      value: "7"
+      description: ""
+      disabled: false
+order: 2000
+examples: './.resources/get-all-scenes.resources/examples/'

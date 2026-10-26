@@ -6,17 +6,17 @@ interface SkillsMatrixProps {
 }
 
 const categoryMap: Record<ProficiencyLevel, string> = {
-  BEGINNER: 'Foundational',
-  INTERMEDIATE: 'Working',
-  ADVANCED: 'Proficient',
-  EXPERT: 'Expert',
+  [ProficiencyLevel.BEGINNER]: 'Foundational',
+  [ProficiencyLevel.INTERMEDIATE]: 'Working',
+  [ProficiencyLevel.ADVANCED]: 'Proficient',
+  [ProficiencyLevel.EXPERT]: 'Expert',
 };
 
 const proficiencyColors: Record<ProficiencyLevel, { bg: string; text: string }> = {
-  BEGINNER: { bg: 'bg-surface-container', text: 'text-on-surface-variant' },
-  INTERMEDIATE: { bg: 'bg-secondary-container', text: 'text-on-secondary' },
-  ADVANCED: { bg: 'bg-tertiary-container', text: 'text-on-tertiary' },
-  EXPERT: { bg: 'bg-primary-container', text: 'text-on-primary' },
+  [ProficiencyLevel.BEGINNER]: { bg: 'bg-surface-container', text: 'text-on-surface-variant' },
+  [ProficiencyLevel.INTERMEDIATE]: { bg: 'bg-secondary-container', text: 'text-on-secondary' },
+  [ProficiencyLevel.ADVANCED]: { bg: 'bg-tertiary-container', text: 'text-on-tertiary' },
+  [ProficiencyLevel.EXPERT]: { bg: 'bg-primary-container', text: 'text-on-primary' },
 };
 
 const SkillsMatrix: React.FC<SkillsMatrixProps> = ({ skills }) => {

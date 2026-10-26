@@ -1,0 +1,16 @@
+$kind: http-request
+url: http://localhost:8080/api/scripts/7/review
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"sceneId\": 2,\r
+
+    \  \"action\": \"reject\",\r
+
+    \  \"comment\": \".......\"\r
+
+    }"
+order: 3000
+examples: './.resources/accept-scene.resources/examples/'

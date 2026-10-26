@@ -126,6 +126,15 @@ Hiển thị kết quả: điểm, điểm mạnh/yếu, gợi ý cải thiện
 - **Technical Depth:** Chiều sâu kỹ thuật
 - **Overall:** Điểm tổng hợp
 
+#### Design Decisions — Phase 3 (Interview Session)
+
+> ⚙️ Các quyết định đã chốt khi triển khai backend Phase 3 (đợt 1):
+
+1. **Nguồn câu hỏi: cache-first + AI** — tái dùng `AIQuestionService.generateQuestions` (sẵn cache `ai_question_cache` + AI bổ sung ở Phase 2). Pool phiên = gọi lần lượt từng skill của CV (tối đa **6 skills** = skills + knowledge_gaps, hoặc `focusSkills` trong request nếu có), lưu danh sách `question id` vào cột **`question_pool`** của `interview_session` → `GET next` không gọi AI lại.
+2. **Audio: đủ bộ khung ngay đợt này** — `AudioAnalysisService` lưu file vào `storage.audio-upload-dir`, gọi **Whisper** (`/audio/transcriptions`) để transcribe, rồi gọi AI chấm **eloquence + coherence**. Text bắt buộc, audio tùy chọn (base64 trong body theo §6.4).
+3. **Finish khi AI fail: giữ `IN_PROGRESS`** — `AIServiceException` → **502**, transaction rollback (answers đã lưu giữ nguyên, evaluation/session không đổi) — nhất quán pattern Phase 2.
+4. Câu hỏi AI sinh lúc start được **persist vào bảng `question`** (không gắn topic) để phiên tham chiếu bằng id.
+
 ### 2.4 AI Question Generation & Cache
 
 **Ý tưởng:**
@@ -463,6 +472,7 @@ CREATE TABLE interview_session (
     started_at TIMESTAMP NULL,
     completed_at TIMESTAMP NULL,
     current_question_index INT DEFAULT 0,
+    question_pool JSON, -- bổ sung (additive): danh sách question id của phiên, để GET /next không gọi AI lại
     overall_score DECIMAL(5,2),
     overall_feedback TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -538,9 +548,14 @@ public enum ProgramType {
     STUDY, INTERVIEW_PREP
 }
 
-// SessionStatus.java
+// SessionStatus.java (đã có từ Phase 1 — tái sử dụng)
 public enum SessionStatus {
     NOT_STARTED, IN_PROGRESS, COMPLETED, CANCELLED
+}
+
+// SessionType.java (NEW — Phase 3)
+public enum SessionType {
+    PRACTICE, FULL_SIMULATION
 }
 
 // ProficiencyLevel.java
@@ -745,6 +760,11 @@ public class AIConfig {
 ```
 
 ### 6.2 AI Service Implementation
+
+> **Triển khai thực tế (đã hoàn thiện sau rà soát):**
+> - `OpenAiClient` có 2 nhóm model: `chat()/chatJson()` dùng `model` (sinh CV, câu hỏi); `chatEval()/chatJsonEval()` dùng `evalModel` (đánh giá answer, audio eloquence/coherence, tổng hợp báo cáo). Tách qua `AI_MODEL`/`AI_EVAL_MODEL` trong `.env`.
+> - `InterviewServiceImpl.buildQuestionPool` trộn `questionTypes` theo round-robin (skill × type), mỗi nhóm gọi `generateQuestions` 1 lần → pool đa dạng loại câu, tổng khớp `totalQuestions`.
+> - `AIQuestionServiceImpl.generateQuestions`: phần trăm difficulty làm tròn còn dư được phân bổ đều → không thiếu câu so với yêu cầu.
 
 ```java
 @Service
@@ -1442,17 +1462,25 @@ export interface QuestionOption {
 | Study Program Entity | StudyProgram + StudyTopic entities | 2 entities + repos |
 | Study API | Generate program, get topics, get questions | `StudyProgramController` |
 
-### Phase 3: Interview Session (Tuần 3-4)
+### Phase 3: Interview Session (Tuần 3-4) ✅ Backend hoàn thành
 
-| Task | Chi tiết | Output |
-|------|----------|--------|
-| Interview Entity | InterviewSession + InterviewAnswer + Evaluation | 3 entities + repos |
-| Session Flow | Start → Get Next → Submit → Finish | `InterviewService` |
-| Text Evaluation | AI evaluate text answers | Evaluation logic |
-| Audio Processing | Whisper transcription + analysis | `AudioAnalysisService` |
-| Overall Evaluation | Generate overall report from all answers | Evaluation logic |
+| Task | Chi tiết | Output | Trạng thái |
+|------|----------|--------|-----------|
+| Interview Entity | InterviewSession + InterviewAnswer + Evaluation | 3 entities + repos | ✅ |
+| Session Flow | Start → Get Next → Submit → Finish | `InterviewService` | ✅ |
+| Text Evaluation | AI evaluate text answers | Evaluation logic (tái dùng `evaluateAnswer`) | ✅ |
+| Audio Processing | Whisper transcription + analysis | `AudioAnalysisService` | ✅ |
+| Overall Evaluation | Generate overall report from all answers | `finishSession` → `interview_evaluation` | ✅ |
 
-### Phase 4: Frontend (Tuần 4-5)
+> **Chi tiết triển khai đợt 1 (chưa có OpenAI key, test nhánh lỗi):**
+> - Entities: `InterviewSession` (+ cột `question_pool JSON`), `InterviewAnswer`, `InterviewEvaluation`.
+> - `InterviewServiceImpl.startSession`: yêu cầu CV → build pool theo distribution (`interview.difficulty-distribution`) → persist câu hỏi → lưu session `NOT_STARTED`. Thiếu key → **502** + rollback (không tạo session).
+> - `getNextQuestion`: trả câu hỏi theo `currentQuestionIndex`, tự chuyển `NOT_STARTED → IN_PROGRESS`; hết pool → 404 "gọi /finish".
+> - `submitAnswer`: verify câu hỏi thuộc pool → AI `evaluateAnswer` (text) + (optional) Whisper + AI eloquence/coherence → lưu `interview_answer`.
+> - `finishSession`: gộp Q&A → AI overall report → lưu `interview_evaluation` + session `COMPLETED`; AI fail → **502**, giữ `IN_PROGRESS` retry.
+> - Migration: `V8__interview_session_tables.sql` (Hibernate tự tạo bảng, file là tài liệu tham chiếu).
+
+### Phase 4: Frontend (Tuần 4-5) ✅ Hoàn thành
 
 | Task | Chi tiết | Output |
 |------|----------|--------|
@@ -1462,6 +1490,8 @@ export interface QuestionOption {
 | Interview Session | Question display, audio recorder, answer input | `InterviewSessionPage.tsx` |
 | Results Page | Score charts, feedback, suggestions | `InterviewResultsPage.tsx` |
 | API Services | cv.service, study.service, interview.service | 3 service files |
+
+> **Đã implement** (bản Phase 4 thực tế): thư mục `frontend/src/models/{Cv,Study,Interview}.model.ts`; `services/{cv,study,interview}.service.ts`; `controllers/use{Cv,Study,StudyTopic,Interview}Controller.ts`; `views/pages/{CVUploadPage, StudyProgramPage, StudyTopicPage, InterviewSetupPage, InterviewSessionPage, InterviewResultsPage}.tsx`; `views/components/{AppLayout, AudioRecorder}.tsx`; dependency `recharts ^2.12` (RadarChart + BarChart). Build thành công (CRA+TS), image Docker mới `springboot-frontend`. Smoke qua nginx proxy: login + `/api/v1/cv | study/programs | interview/history` đều OK; `/interview/start` thiếu `OPENAI_API_KEY` → **502** message đúng.
 
 ### Phase 5: Polish & Testing (Tuần 5-6)
 
@@ -1590,6 +1620,8 @@ study:
 | GET | `/api/v1/interview/history` | List past sessions | - | `List<InterviewSessionResponse>` |
 | GET | `/api/v1/interview/{sessionId}/report` | Get detailed report | - | `EvaluationReportResponse` |
 
+> ✅ 6 endpoint trên đã implement trong `InterviewController` / `InterviewServiceImpl` (backend). Request body thực tế dùng **`SubmitInterviewAnswerRequest`** (thêm `audioBase64` + `audioFileName`), DTO schema bổ sung bên dưới.
+
 ### 12.4 DTOs
 
 #### CvParseResponse
@@ -1676,6 +1708,47 @@ study:
 }
 ```
 
+#### SubmitInterviewAnswerRequest (Phase 3 — đã implement)
+```json
+{
+  "questionId": 1,
+  "textAnswer": "ConcurrentHashMap is synchronized...",
+  "selectedOption": "A",
+  "audioBase64": "base64_encoded_audio",
+  "audioFileName": "answer.webm"
+}
+```
+
+#### InterviewSessionResponse (Phase 3 — đã implement)
+```json
+{
+  "id": 1,
+  "sessionType": "FULL_SIMULATION",
+  "targetPosition": "Java Backend Developer",
+  "totalQuestions": 20,
+  "timeLimitMinutes": 60,
+  "status": "NOT_STARTED",
+  "currentQuestionIndex": 0,
+  "startedAt": null,
+  "completedAt": null,
+  "overallScore": null,
+  "overallFeedback": null,
+  "questionDistribution": {"BEGINNER": 20, "INTERMEDIATE": 50, "ADVANCED": 30}
+}
+```
+
+#### AudioAnalysisResult (Phase 3 — đã implement)
+```json
+{
+  "transcription": "transcribed text",
+  "eloquenceScore": 7.5,
+  "coherenceScore": 8.0,
+  "durationSeconds": 45,
+  "detectedLanguage": null,
+  "audioFilePath": "C:/.../uploads/audio/answer_123.webm"
+}
+```
+
 ---
 
 ## Appendix A: Environment Variables
@@ -1738,6 +1811,75 @@ Xây dựng **nền tảng (Foundation)** cho AI Interview Platform:
 2. Robustness: strip markdown fences, parse Jackson, validate giới hạn (skills≤30, experience≤20, education≤10), lỗi → `AIServiceException` → HTTP **502** kèm message rõ ràng.
 3. Bảo mật: `@PreAuthorize("isAuthenticated()")` trên `CvController`; user xác thực qua JWT.
 4. Tùy chỉnh model: `AI_MODEL` / `AI_EVAL_MODEL` / `OPENAI_API_KEY` qua `.env` — không cần sửa code.
+
+---
+
+## Appendix E: 5W1H — Phase 3 (Interview Session)
+
+### What — Làm gì?
+Xây **backend phiên phỏng vấn mô phỏng** (mock interview): bắt đầu phiên → lần lượt câu hỏi → trả lời text (+ audio tùy chọn) → AI đánh giá từng câu → AI đánh giá tổng quan. Gồm:
+- **Entities/Repos**: `InterviewSession` (+ `question_pool JSON`), `InterviewAnswer`, `InterviewEvaluation` + 3 repository.
+- **Services**: `InterviewService` (start/next/submit/finish/history/report), `AudioAnalysisService` (lưu file + Whisper + eloquence/coherence).
+- **Controller**: `InterviewController` `/api/v1/interview` (6 endpoint).
+- **AI**: câu hỏi cache-first + AI (`AIQuestionService`), đánh giá text (`evaluateAnswer`), transcription (Whisper), overall report (GPT-4o-mini, JSON mode).
+- **Migration**: `V8__interview_session_tables.sql`.
+
+### Why — Tại sao phải làm?
+- Hoàn thiện vòng đời "**CV → Study → Interview → Results**"; là tính năng cốt lõi **P0** (phiên phỏng vấn giúp luyện trả lời + đo lường tiến bộ).
+- Team **chưa có OpenAI key** → tiếp tục triết lý *"kết nối trước, key sau"*: app vẫn chạy, thiếu key chỉ trả **502** message rõ; test trọn vòng khi điền `OPENAI_API_KEY`.
+- Tái dùng tối đa Phase 2 (cache câu hỏi, `evaluateAnswer`, DTO, pattern ownership) → ít code duplicate, nhất quán.
+
+### When — Khi nào?
+- Theo plan: **Tuần 3–4**. Đợt 1 (backend) đã xong + verify: `mvn compile` OK; smoke test không-key: `start` không CV → **400**, `start` có CV → **502** và **rollback** (history = 0), `next`/`report` sai session → **404**, `history` → rỗng; 3 bảng `interview_*` đã tạo.
+- Còn lại **làm sau (đợt 2)**: test trọn vòng với key thật, frontend (Phase 4), design **Phase 5 Polish & Testing**.
+
+### Where — Ở đâu?
+- **Branch**: `interview_program` · **Backend**: `backend/` · **Package**: `com.aiinterview.platform.*` · **Migration**: `backend/src/main/resources/db/migration/V8__interview_session_tables.sql`.
+- File chính: `InterviewController.java`, `InterviewService(+Impl)`, `AudioAnalysisService(+Impl)`, entity/repo `Interview*`, `OpenAiClient.transcribeAudio`.
+
+### Who — Ai làm / cho ai?
+- **Thực hiện**: AI agent — code + compile + smoke test; user duyệt (đã chốt 3 quyết định thiết kế: cache-first+AI, audio đủ bộ khung, finish giữ `IN_PROGRESS` khi AI fail).
+- **Người dùng cuối**: học viên có CV — luyện phỏng vấn, nhận điểm + feedback (text/audio).
+
+### How — Thực hiện thế nào?
+1. **Start**: cần CV → build pool: mỗi skill (≤6) gọi `AIQuestionService.generateQuestions` theo distribution (BEGINNER/INTERMEDIATE/ADVANCED) → persist câu hỏi → lưu `question_pool` + session `NOT_STARTED`.
+2. **Next**: đọc `question_pool[current_question_index]`, tăng index, tự chuyển `IN_PROGRESS`; hết pool → 404 nhắc `/finish`.
+3. **Answer**: verify câu hỏi thuộc pool → `evaluateAnswer` (text) → (optional) base64 → lưu file → Whisper transcribe → AI chấm eloquence/coherence → lưu `interview_answer` (answerOrder tăng dần).
+4. **Finish**: gộp các Q&A + score → prompt overall → `chatJson` → lưu `interview_evaluation` + session `COMPLETED` (started/completed timestamps); AI fail → **502**, rollback giữ `IN_PROGRESS`.
+5. **An toàn**: mọi endpoint `isAuthenticated()` + `findByIdAndUserId` + verify pool → cross-user trả **404**; audio ≤ 8MB, ext whitelist, lưu ngoài web root.
+6. **Model**: `whisper-1` (transcribe), GPT-4o-mini (generate/eval/overall); override qua `.env` (`AI_MODEL`, `AI_EVAL_MODEL`).
+
+---
+
+## Appendix F: 5W1H — Phase 4 (Frontend)
+
+### What — Làm gì?
+Xây toàn bộ giao diện React (CRA + TypeScript) nối vào các API Phase 1-3: upload/parse CV, học theo chương trình (generate → topics → question → đánh giá), phỏng vấn (setup → session → báo cáo Recharts). Không dùng UI framework — inline styles theo chuẩn DashboardPage có sẵn.
+
+### Why — Tại sao phải làm?
+Backend đã đủ 6 API interview, nhưng chưa có UI để dùng. Lộ trình học: trang CV cung cấp `targetPosition` → Study generate theo vị trí → Interview hỏi theo `focusSkills` từ CV. Báo cáo trực quan (Radar/Bar) giúp học viên thấy điểm mạnh/yếu.
+
+### When — Khi nào?
+Sau khi Phase 1-3 backend verified (branch `interview_program`). Không cần `OPENAI_API_KEY` để phát triển — UI test được qua nhánh lỗi (502 message); key thật chỉ cần khi chạy AI thành công.
+
+### Where — Ở đâu?
+`frontend/src/`:
+- `models/{Cv,Study,Interview}.model.ts` — type map đúng DTO backend (`PagedResponse<T>` tái dùng từ `User.model`).
+- `services/{cv,study,interview}.service.ts` — gọi `http.service.ts` (JWT interceptor + refresh), endpoint `/api/v1/*`.
+- `controllers/use{Cv,Study,StudyTopic,Interview}Controller.ts` — hook: state + loading + error; trang KHÔNG gọi axios trực tiếp.
+- `views/components/{AppLayout,AudioRecorder}.tsx` — nav toàn app + ghi âm `MediaRecorder` → base64 webm.
+- `views/pages/` 6 trang (routes trong `App.tsx` bọc `ProtectedRoute` → `AppLayout`).
+
+### Who — Ai làm / cho ai?
+- Thực hiện: AI agent. Duyệt: user. Học viên (user) dùng; Admin thêm mục "Quản lý user".
+- Image: `frontend` (node:18**alpine** build → nginx serve) — lưu ý `npm ci` đòi `package-lock.json` **đồng bộ npm 10** (node:18), đã regenerate lockfile bằng `npx npm@10`.
+
+### How — Thực hiện thế nào?
+1. **Models** → **Services** → **Controllers (hooks)** — làm nền trước, mỗi trang chỉ "view + gọi hook".
+2. **CVUploadPage**: dropzone/pdf/paste-text → `uploadCv/parseText` → preview skills/exp/edu/gaps + `position` selector (suggestedPositions).
+3. **StudyProgramPage**: list + generate card (`programType`, `targetPosition`, gợi ý từ CV). **StudyTopicPage**: steps topics → câu hỏi paged → trả lời → `AnswerEvaluation` (điểm/feedback/đáp án mẫu).
+4. **InterviewSetupPage**: config (sessionType, số câu, thời gian, types, focusSkills) + lịch sử. **InterviewSessionPage**: bấm bắt đầu → `/next` từng câu → nộp (text bắt buộc + audio tùy chọn) → khi đủ câu → `/finish`. **InterviewResultsPage**: `/report` → Radar (4 khía cạnh) + Bar (từng câu) + strong/weak + suggestions.
+5. **Luồng dữ liệu chuẩn** (1 ví dụ học pattern): `Page → hook → service → http.service(JWT) → nginx /api → Controller → Service → OpenAi/DB → ApiResponse{success,message,data} → hook setState → render`.
 
 ---
 

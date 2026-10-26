@@ -1,0 +1,8 @@
+name: Globals
+values:
+  - key: AccessToken
+    enabled: true
+    secret: true
+  - key: AcessToken
+    enabled: true
+    secret: true

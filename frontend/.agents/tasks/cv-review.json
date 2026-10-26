@@ -1,0 +1,26 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {
+      "severity": "HIGH",
+      "description": "API service bypasses auth interceptor — cv.service.ts uses raw fetch() instead of httpService, causing token expiry during CV operations to fail with 401 instead of being transparently refreshed. Replace fetch calls with httpService to align with auth.service and admin.service pattern."
+    },
+    {
+      "severity": "HIGH",
+      "description": "Response envelope mismatch — cv.service.ts returns raw CvParseResponse while CvPage expects { data: { data: T } } structure (lines 67, 80, 87 access cvRes.data.data). Either service should return AxiosResponse<ApiResponse<T>> to match httpService pattern, or CvPage should access .data directly, not .data.data."
+    },
+    {
+      "severity": "HIGH",
+      "description": "Service export mismatch — cv.service.ts exports named export cvService, but CvPage imports as default (import CvService from ...) and calls CvService.getCv(). This fails at runtime. Change to export default cvService or update CvPage import to use named import { cvService }."
+    },
+    {
+      "severity": "HIGH",
+      "description": "Sub-components unverified — CvPage imports six sub-components (UploadZone, SkillsMatrix, KnowledgeGapCard, PositionFitCard, ExperienceTimeline, EvaluationDimensions) but file search found no matches. Verify each exists at src/views/components/cv/<ComponentName>.tsx and run npm run build to confirm module resolution."
+    },
+    {
+      "severity": "MEDIUM",
+      "description": "No test coverage — CV page and components have no unit tests. Add tests for CvPage state management (loading, upload, parse, error flows), child components, and service methods before shipping."
+    }
+  ],
+  "reviewDoc": "c:\\Users\\LENOVO\\Downloads\\SpringBoot\\SpringBoot\\frontend\\.agents\\tasks\\cv-review.md"
+}

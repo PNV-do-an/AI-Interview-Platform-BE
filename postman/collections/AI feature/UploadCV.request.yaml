@@ -1,0 +1,15 @@
+$kind: http-request
+url: POST http://localhost:8080/api/v1/cv/upload?=
+method: GET
+queryParams:
+  "": ""
+body:
+  type: formdata
+  content:
+    - type: file
+      key: file
+      src:
+        - postman-cloud:///1f1cb108-8fdd-4d90-b25c-b758cedf2c52
+      description: ""
+      disabled: false
+order: 1000

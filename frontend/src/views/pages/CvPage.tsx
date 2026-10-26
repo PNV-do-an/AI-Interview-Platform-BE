@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import CvService from '../../services/cv.service';
-import { CvParseResponse, SkillResponse } from '../../models/Cv.model';
+import { CvParseResponse, SkillData } from '../../models/Cv.model';
 import UploadZone from '../components/cv/UploadZone';
 import SkillsMatrix from '../components/cv/SkillsMatrix';
 import KnowledgeGapCard from '../components/cv/KnowledgeGapCard';
@@ -15,7 +15,7 @@ const CvPage: React.FC = () => {
 
   // State management
   const [cvData, setCvData] = useState<CvParseResponse | null>(null);
-  const [skills, setSkills] = useState<SkillResponse[]>([]);
+  const [skills, setSkills] = useState<SkillData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploadTab, setUploadTab] = useState<'file' | 'text'>('file');
@@ -70,7 +70,7 @@ const CvPage: React.FC = () => {
         // Try to get skills
         try {
           const skillsRes = await CvService.getSkills();
-          if (skillsRes.data?.data) {
+          if (skillsRes.data?.data && Array.isArray(skillsRes.data.data)) {
             setSkills(skillsRes.data.data);
           }
         } catch (skillsErr: any) {

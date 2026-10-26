@@ -1,0 +1,27 @@
+$kind: http-request
+url: " http://localhost:20128/v1/chat/completions"
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"model\": \"AI_VIDEO\",  // Tên combo đã tạo trong dashboard\r
+
+    \  \"temperature\": 0.7,\r
+
+    \  \"stream\": false,\r
+
+    \  \"messages\": [\r
+
+    \    {\"role\": \"system\", \"content\": \"PING\"},\r
+
+    \    {\"role\": \"user\", \"content\": \"Generate a scene about sky\"}\r
+
+    \  ]\r
+
+    }"
+auth:
+  type: bearer
+  credentials:
+    token: sk-49c0325364b90317-svelcv-a8ff52e2
+order: 6000

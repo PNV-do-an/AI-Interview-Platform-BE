@@ -8,37 +8,22 @@ export enum ProficiencyLevel {
 }
 
 export interface SkillData {
-  id?: number;
   name: string;
-  category?: string;
   proficiency: ProficiencyLevel;
-  years?: number;
+  years: number;
 }
 
 export interface ExperienceData {
-  id?: number;
-  position: string;
   company: string;
-  location?: string;
-  startDate: string;
-  endDate?: string;
-  description?: string;
-  technologies?: string[];
+  role: string;
+  duration: string;
+  achievements: string[];
 }
 
 export interface EducationData {
-  id?: number;
-  degree: string;
   institution: string;
-  field?: string;
-  graduationYear?: number;
-  honors?: string;
-}
-
-export interface PositionFit {
-  position: string;
-  matchPercentage: number;
-  description?: string;
+  degree: string;
+  year: number;
 }
 
 export interface KnowledgeGap {
@@ -49,30 +34,36 @@ export interface KnowledgeGap {
 }
 
 export interface CvParseResponse {
-  cvId?: number;
-  fileName?: string;
-  filePath?: string;
-  skills?: SkillData[];
-  experience?: ExperienceData[];
-  education?: EducationData[];
-  suggestedPositions?: PositionFit[];
-  knowledgeGaps?: KnowledgeGap[];
-  targetPosition?: string;
-  targetLevel?: string;
-  summary?: string;
-  matchScore?: number;
+  cvId?: number | null;
+  fileName?: string | null;
+  skills: SkillData[];
+  experience: ExperienceData[];
+  education: EducationData[];
+  suggestedPositions: string[];
+  knowledgeGaps: string[];
+  targetPosition?: string | null;
+  targetLevel?: string | null;
 }
 
 export interface SkillResponse {
   id: number;
-  skillName: string;
-  proficiencyLevel: ProficiencyLevel;
-  yearsExperience?: number;
+  name: string;
+  proficiency: ProficiencyLevel;
+  years: number;
 }
 
 export interface CvUpdateRequest {
   position: string;
   level: string;
+}
+
+export interface SetPositionRequest {
+  position: string;
+  level: string;
+}
+
+export interface CvTextRequest {
+  cvText: string;
 }
 
 export interface EvaluationDimension {

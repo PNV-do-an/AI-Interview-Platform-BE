@@ -4,6 +4,7 @@ import com.aiinterview.platform.common.exception.AIServiceException;
 import com.aiinterview.platform.common.exception.BadRequestException;
 import com.aiinterview.platform.common.exception.ResourceNotFoundException;
 import com.aiinterview.platform.model.dto.response.CvParseResponse;
+import com.aiinterview.platform.model.dto.response.SkillResponse;
 import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.entity.UserCv;
 import com.aiinterview.platform.model.entity.UserSkill;
@@ -101,10 +102,21 @@ public class CvServiceImpl implements CvService {
     }
 
     @Override
-    public List<UserSkill> getCvSkills(Long userId) {
+    public List<SkillResponse> getCvSkills(Long userId) {
         return userCvRepository.findTopByUserIdOrderByUpdatedAtDesc(userId)
-                .map(cv -> userSkillRepository.findByCvId(cv.getId()))
+                .map(cv -> userSkillRepository.findByCvId(cv.getId()).stream()
+                        .map(this::toSkillResponse)
+                        .toList())
                 .orElseGet(List::of);
+    }
+
+    /** Chỉ đọc các cột scalar của UserSkill — không chạm cv/user nên không kéo theo dữ liệu nhạy cảm. */
+    private SkillResponse toSkillResponse(UserSkill skill) {
+        return new SkillResponse(
+                skill.getId(),
+                skill.getSkillName(),
+                skill.getProficiencyLevel(),
+                skill.getYearsExperience());
     }
 
     private CvParseResponse persistParsed(User user, String rawText, String fileName, String filePath,
