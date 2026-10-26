@@ -9,6 +9,7 @@ import AdminUserManagementPage from './views/pages/AdminUserManagementPage';
 import UnauthorizedPage from './views/pages/UnauthorizedPage';
 import ForgotPasswordPage from './views/pages/ForgotPasswordPage';
 import ResetPasswordPage from './views/pages/ResetPasswordPage';
+import CvPage from './views/pages/CvPage';
 
 const App: React.FC = () => {
   return (
@@ -24,6 +25,7 @@ const App: React.FC = () => {
           {/* Protected routes — any authenticated user */}
           <Route element={<ProtectedRoute />}>
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/cv" element={<CvPage />} />
           </Route>
 
           {/* Admin-only routes */}
