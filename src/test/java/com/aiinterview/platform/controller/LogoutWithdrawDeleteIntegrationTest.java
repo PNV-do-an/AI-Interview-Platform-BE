@@ -251,7 +251,7 @@ class LogoutWithdrawDeleteIntegrationTest {
 
         mockMvc.perform(as(stranger, "USER", delete("/api/v1/mock-interviews/" + sessionId)))
                 .andDo(print())
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isForbidden());
         assertNotNull(sessionRepository.findById(sessionId).orElse(null));
 
         mockMvc.perform(delete("/api/v1/mock-interviews/" + sessionId))

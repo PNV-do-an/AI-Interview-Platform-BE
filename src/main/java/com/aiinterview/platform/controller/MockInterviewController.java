@@ -1,9 +1,11 @@
 package com.aiinterview.platform.controller;
 
 import com.aiinterview.platform.common.response.ApiResponse;
+import com.aiinterview.platform.model.dto.request.InterviewEvaluationRequest;
 import com.aiinterview.platform.model.dto.request.StartInterviewRequest;
 import com.aiinterview.platform.model.dto.request.SubmitAnswerRequest;
 import com.aiinterview.platform.model.dto.response.InterviewAnswerResponse;
+import com.aiinterview.platform.model.dto.response.InterviewReportResponse;
 import com.aiinterview.platform.model.dto.response.InterviewResultResponse;
 import com.aiinterview.platform.model.dto.response.InterviewSessionResponse;
 import com.aiinterview.platform.model.entity.User;
@@ -25,7 +27,7 @@ public class MockInterviewController {
     private final MockInterviewService mockInterviewService;
     private final UserRepository userRepository;
 
-    /** POST /api/v1/mock-interviews — start a MOCK or KNOWLEDGE session */
+    /** POST /api/v1/mock-interviews — start a MOCK, KNOWLEDGE or AVATAR session */
     @PostMapping
     @PreAuthorize("hasRole('USER')")
     public ResponseEntity<ApiResponse<InterviewSessionResponse>> start(
@@ -68,6 +70,25 @@ public class MockInterviewController {
     public ResponseEntity<ApiResponse<InterviewResultResponse>> finish(@PathVariable Long id) {
         User candidate = SecurityUtils.getCurrentUser(userRepository);
         return ResponseEntity.ok(ApiResponse.success(mockInterviewService.finish(candidate, id)));
+    }
+
+    /** POST /api/v1/mock-interviews/{id}/evaluation — nộp rubric 5 chiều cho phiên AVATAR đã kết thúc */
+    @PostMapping("/{id}/evaluation")
+    @PreAuthorize("hasRole('USER')")
+    public ResponseEntity<ApiResponse<InterviewReportResponse>> submitEvaluation(
+            @PathVariable Long id,
+            @Valid @RequestBody InterviewEvaluationRequest request) {
+        User candidate = SecurityUtils.getCurrentUser(userRepository);
+        return ResponseEntity.ok(ApiResponse.success(
+                mockInterviewService.submitEvaluation(candidate, id, request)));
+    }
+
+    /** GET /api/v1/mock-interviews/{id}/report — báo cáo avatar, chỉ chính chủ phiên đọc được */
+    @GetMapping("/{id}/report")
+    @PreAuthorize("hasRole('USER')")
+    public ResponseEntity<ApiResponse<InterviewReportResponse>> getReport(@PathVariable Long id) {
+        User candidate = SecurityUtils.getCurrentUser(userRepository);
+        return ResponseEntity.ok(ApiResponse.success(mockInterviewService.getReport(candidate, id)));
     }
 
     /** DELETE /api/v1/mock-interviews/{id} — xóa phiên luyện của chính mình, không hoàn tác được */

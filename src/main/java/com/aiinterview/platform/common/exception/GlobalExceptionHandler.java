@@ -134,6 +134,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(422).body(error);
     }
 
+    /**
+     * Đúng quyền chung nhưng không phải chủ bản ghi (spec 012: id phiên của người khác → 403).
+     * Không dùng 404 vì sẽ xác nhận với caller rằng phiên đó tồn tại.
+     */
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<?> handleForbidden(ForbiddenException ex, HttpServletRequest request) {
+        ErrorModel error = new ErrorModel(403, ex.getMessage(), request.getRequestURL().toString(), LocalDateTime.now(),
+                new HashMap<>());
+        return ResponseEntity.status(403).body(error);
+    }
+
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<?> handleNotFound(ResourceNotFoundException ex, HttpServletRequest request) {
         ErrorModel error = new ErrorModel(404, ex.getMessage(), request.getRequestURL().toString(), LocalDateTime.now(),

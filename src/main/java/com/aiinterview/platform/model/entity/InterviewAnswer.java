@@ -42,6 +42,12 @@ public class InterviewAnswer {
 
     private LocalDateTime answeredAt;
 
+    /**
+     * Chỉ dùng cho phiên AVATAR: null = bản nháp transcript do STT trả về và còn sửa được,
+     * có giá trị = ứng viên đã chốt lượt này, mọi lần ghi lại vào cùng questionIndex bị từ chối.
+     */
+    private LocalDateTime confirmedAt;
+
     @PrePersist
     protected void onCreate() {
         if (answeredAt == null) {
