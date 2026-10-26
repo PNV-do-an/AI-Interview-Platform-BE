@@ -12,6 +12,7 @@ import com.aiinterview.platform.model.repository.UserRepository;
 import com.aiinterview.platform.security.utils.SecurityUtils;
 import com.aiinterview.platform.service.EmailService;
 import com.aiinterview.platform.service.PasswordResetService;
+import com.aiinterview.platform.service.UserSessionService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +33,7 @@ public class PasswordResetServiceImpl implements PasswordResetService {
     private final PasswordResetAttemptRepository resetAttemptRepository;
     private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
+    private final UserSessionService userSessionService;
 
     private static final Pattern PASSWORD_PATTERN =
             Pattern.compile("^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@#$%^&+=!]).{8,}$");
@@ -129,6 +131,9 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         user.setLoginAttempts(0);
         user.setLockUntil(null);
         userRepository.save(user);
+        if (signOutEverywhere) {
+            userSessionService.revokeAll(user.getId());
+        }
 
         try {
             emailService.sendPasswordResetConfirmation(user.getEmail(), user.getFullName());

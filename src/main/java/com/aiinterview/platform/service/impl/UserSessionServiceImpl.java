@@ -88,18 +88,6 @@ public class UserSessionServiceImpl implements UserSessionService {
 
     @Override
     @Transactional
-    public void revokeBySessionId(String sessionId) {
-        if (sessionId == null) {
-            return;
-        }
-        userSessionRepository.findBySessionId(sessionId).ifPresent(session -> {
-            session.setRevokedAt(LocalDateTime.now());
-            userSessionRepository.save(session);
-        });
-    }
-
-    @Override
-    @Transactional
     public void revokeAll(Long userId) {
         userSessionRepository.revokeAllForUser(userId, LocalDateTime.now());
     }

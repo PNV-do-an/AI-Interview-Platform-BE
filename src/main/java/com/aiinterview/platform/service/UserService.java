@@ -11,6 +11,16 @@ public interface UserService extends UserDetailsService {
     /** Verifies the current password, applies the strength rules, revokes every session. */
     void changePassword(String email, ChangePasswordRequest request);
 
-    /** Logout: tăng tokenVersion để access lẫn refresh token đang phát hành đều chết ngay. */
+    /** Logout: tăng tokenVersion để access lẫn refresh token đang phát hành đều chết ngay,
+     *  đồng thời đóng mọi dòng user_session của tài khoản. */
     void revokeSessions(String email);
+
+    /**
+     * Lưu ảnh đại diện dạng data URL. Loại ảnh và cỡ ảnh được kiểm tra trước khi ghi:
+     * chuỗi gửi lên không decode được, không phải PNG/JPG/WEBP, hoặc vượt 2 MB là fail ngay.
+     */
+    void updateAvatar(String email, String dataUrl);
+
+    /** Xóa ảnh; màn tài khoản quay lại hiển thị chữ viết tắt từ họ tên. */
+    void clearAvatar(String email);
 }

@@ -22,8 +22,6 @@ public interface UserSessionService {
     /** Thu hồi một phiên của chính người dùng; 404 nếu id không thuộc về họ. */
     void revoke(Long userId, Long sessionId);
 
-    void revokeBySessionId(String sessionId);
-
     /** Dùng khi đổi mật khẩu, đặt lại mật khẩu, admin khóa hoặc tắt tài khoản. */
     void revokeAll(Long userId);
 }

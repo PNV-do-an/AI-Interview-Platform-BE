@@ -18,6 +18,7 @@ import com.aiinterview.platform.model.repository.UserRepository;
 import com.aiinterview.platform.security.jwt.JwtUtil;
 import com.aiinterview.platform.security.utils.SecurityUtils;
 import com.aiinterview.platform.service.TwoFactorService;
+import com.aiinterview.platform.service.UserSessionService;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +48,7 @@ public class TwoFactorServiceImpl implements TwoFactorService {
     private final LoginAttemptRepository loginAttemptRepository;
     private final TotpVerifier totpVerifier;
     private final PasswordEncoder passwordEncoder;
+    private final UserSessionService userSessionService;
 
     @Value("${app.name:AI Interview Platform}")
     private String issuer;
@@ -94,10 +96,11 @@ public class TwoFactorServiceImpl implements TwoFactorService {
         user.setLockUntil(null);
         userRepository.save(user);
 
+        String sessionId = userSessionService.start(user, request);
         String accessToken = JwtUtil.generateAccessToken(
-                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), sessionId);
         String refreshToken = JwtUtil.generateRefreshToken(
-                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), sessionId);
         return new LoginResponse(accessToken, refreshToken, user.getRole().name());
     }
 

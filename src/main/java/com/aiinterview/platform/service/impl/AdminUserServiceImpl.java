@@ -35,6 +35,7 @@ import com.aiinterview.platform.model.repository.RecoveryCodeRepository;
 import com.aiinterview.platform.model.repository.UserRepository;
 import com.aiinterview.platform.service.AdminUserService;
 import com.aiinterview.platform.service.EmailService;
+import com.aiinterview.platform.service.UserSessionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -91,6 +92,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     private final EmailService emailService;
     private final AdminAuditWriter auditWriter;
     private final PasswordEncoder passwordEncoder;
+    private final UserSessionService userSessionService;
     /** Self-proxy so each bulk id runs in its own transaction (one bad id never poisons the rest). */
     private final ObjectProvider<AdminUserService> selfProvider;
 
@@ -286,6 +288,7 @@ public class AdminUserServiceImpl implements AdminUserService {
             target.setLockedAt(LocalDateTime.now());
             target.setTokenVersion(target.getTokenVersion() + 1);
             userRepository.save(target);
+            userSessionService.revokeAll(targetUserId);
             String detail = "Khóa tài khoản: " + target.getEmail()
                     + (reason != null ? " — Lý do: " + reason : "");
             saveAuditLog(admin, targetUserId, AuditAction.LOCK_USER, detail);
@@ -397,6 +400,9 @@ public class AdminUserServiceImpl implements AdminUserService {
                 target.setTokenVersion(target.getTokenVersion() + 1);
             }
             userRepository.save(target);
+            if (!enabled) {
+                userSessionService.revokeAll(targetUserId);
+            }
             saveAuditLog(admin, targetUserId, action,
                     (enabled ? "Bật tài khoản: " : "Tắt tài khoản: ") + target.getEmail());
             return UserDetailResponse.from(target);
@@ -414,6 +420,7 @@ public class AdminUserServiceImpl implements AdminUserService {
             target.setDeletedAt(LocalDateTime.now());
             target.setTokenVersion(target.getTokenVersion() + 1);
             userRepository.save(target);
+            userSessionService.revokeAll(targetUserId);
             saveAuditLog(admin, targetUserId, AuditAction.DELETE_USER,
                     "Xóa tài khoản: " + target.getEmail());
             emailService.sendAccountDeletedEmail(target.getEmail(), target.getFullName());
@@ -474,6 +481,7 @@ public class AdminUserServiceImpl implements AdminUserService {
             target.setRole(newRole);
             target.setTokenVersion(target.getTokenVersion() + 1);
             userRepository.save(target);
+            userSessionService.revokeAll(targetUserId);
             saveAuditLog(admin, targetUserId, AuditAction.CHANGE_ROLE, detail);
             return UserDetailResponse.from(target);
         });
@@ -638,6 +646,7 @@ public class AdminUserServiceImpl implements AdminUserService {
         target.setVerificationToken(UUID.randomUUID().toString());
         target.setVerificationTokenExpiry(LocalDateTime.now().plusHours(INVITATION_TOKEN_TTL_HOURS));
         target.setTokenVersion(target.getTokenVersion() + 1);
+        userSessionService.revokeAll(target.getId());
     }
 
     // ── CSV export ───────────────────────────────────────────────────────────

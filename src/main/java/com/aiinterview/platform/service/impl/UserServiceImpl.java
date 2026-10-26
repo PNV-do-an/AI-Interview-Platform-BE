@@ -6,6 +6,7 @@ import com.aiinterview.platform.model.dto.request.ChangePasswordRequest;
 import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.repository.UserRepository;
 import com.aiinterview.platform.service.UserService;
+import com.aiinterview.platform.service.UserSessionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -19,6 +20,7 @@ public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final UserSessionService userSessionService;
 
     @Override
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
@@ -49,9 +51,11 @@ public class UserServiceImpl implements UserService {
         validateNewPassword(request.getNewPassword());
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         // Thu hồi mọi phiên: claim "tv" trong access lẫn refresh token cũ lệch với cột này nên
-        // JwtFilter từ chối ngay, không phải chờ access token hết hạn.
+        // JwtFilter từ chối ngay, đồng thời các dòng user_session thành revoked để màn thiết bị
+        // và đường /refresh cùng nhìn thấy một trạng thái.
         user.setTokenVersion(user.getTokenVersion() + 1);
         userRepository.save(user);
+        userSessionService.revokeAll(user.getId());
     }
 
     @Override
@@ -61,6 +65,66 @@ public class UserServiceImpl implements UserService {
                 .orElseThrow(() -> new InvalidAccountException("User not found with email: " + email));
         user.setTokenVersion(user.getTokenVersion() + 1);
         userRepository.save(user);
+        userSessionService.revokeAll(user.getId());
+    }
+
+    @Override
+    @Transactional
+    public void updateAvatar(String email, String dataUrl) {
+        User user = findByEmail(email);
+        user.setAvatar(checkedAvatar(dataUrl));
+        userRepository.save(user);
+    }
+
+    @Override
+    @Transactional
+    public void clearAvatar(String email) {
+        User user = findByEmail(email);
+        user.setAvatar(null);
+        userRepository.save(user);
+    }
+
+    /**
+     * Ảnh phải đúng loại và cỡ ngay trong request ghi — không lưu chuỗi hỏng rồi mới lộ ra lúc
+     * màn hình hiển thị. Nhãn MIME tự khai không được tin: kiểm tra chữ ký tệp sau khi decode.
+     */
+    private static String checkedAvatar(String dataUrl) {
+        int comma = dataUrl.indexOf(',');
+        if (comma < 0) {
+            throw new BadRequestException("Ảnh đại diện phải là dữ liệu base64");
+        }
+        byte[] bytes;
+        try {
+            bytes = java.util.Base64.getDecoder().decode(dataUrl.substring(comma + 1));
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Ảnh đại diện không đọc được");
+        }
+        if (bytes.length == 0) {
+            throw new BadRequestException("Ảnh đại diện rỗng");
+        }
+        if (bytes.length > MAX_AVATAR_BYTES) {
+            throw new BadRequestException("Ảnh đại diện tối đa 2 MB");
+        }
+        if (!isPng(bytes) && !isJpeg(bytes) && !isWebp(bytes)) {
+            throw new BadRequestException("Chỉ nhận ảnh PNG, JPG hoặc WEBP");
+        }
+        return dataUrl;
+    }
+
+    private static final int MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+
+    private static boolean isPng(byte[] b) {
+        return b.length > 8 && (b[0] & 0xFF) == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G';
+    }
+
+    private static boolean isJpeg(byte[] b) {
+        return b.length > 3 && (b[0] & 0xFF) == 0xFF && (b[1] & 0xFF) == 0xD8 && (b[2] & 0xFF) == 0xFF;
+    }
+
+    /** RIFF????WEBP — 4 byte độ dài nằm giữa, không cần đọc tới. */
+    private static boolean isWebp(byte[] b) {
+        return b.length > 12 && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F'
+                && b[8] == 'W' && b[9] == 'E' && b[10] == 'B' && b[11] == 'P';
     }
 
     /** Four independent rules so the message names exactly the one that failed (spec 008 US-04). */

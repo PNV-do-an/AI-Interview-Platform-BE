@@ -85,6 +85,14 @@ public class User implements UserDetails {
     @Column(name = "totp_secret", length = 64)
     private String totpSecret;
 
+    /**
+     * Ảnh đại diện lưu inline dạng data URL (disk của deployment ephemeral nên không ghi file),
+     * null = chưa có ảnh. Cột LONGTEXT vì base64 của ảnh 2 MB dài ~2.8 MB ký tự.
+     */
+    @Lob
+    @Column(name = "avatar", columnDefinition = "LONGTEXT")
+    private String avatar;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

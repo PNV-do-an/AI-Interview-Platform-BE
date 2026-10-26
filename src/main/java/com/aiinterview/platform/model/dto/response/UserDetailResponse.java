@@ -32,6 +32,8 @@ public class UserDetailResponse {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private LocalDateTime deletedAt;
+    /** Data URL gốc để <img src> dùng luôn; null = chưa tải ảnh lên. */
+    private String avatar;
 
     /** Newest successful row of login_attempts for this email; null when the account never signed in. */
     private LocalDateTime lastLoginAt;
@@ -81,6 +83,7 @@ public class UserDetailResponse {
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())
                 .deletedAt(user.getDeletedAt())
+                .avatar(user.getAvatar())
                 .build();
     }
 

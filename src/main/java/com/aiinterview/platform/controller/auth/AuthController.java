@@ -26,6 +26,7 @@ import com.aiinterview.platform.service.RegisterInterface;
 import com.aiinterview.platform.service.SsoAuthInterface;
 import com.aiinterview.platform.service.TwoFactorService;
 import com.aiinterview.platform.service.UserService;
+import com.aiinterview.platform.service.UserSessionService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -53,6 +54,7 @@ public class AuthController {
     private final GithubAuthInterface githubAuthInterface;
     private final SsoAuthInterface ssoAuthInterface;
     private final TwoFactorService twoFactorService;
+    private final UserSessionService userSessionService;
 
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<AuthResponse>> register(@Valid @RequestBody RegisterRequest request,
@@ -137,10 +139,11 @@ public class AuthController {
                                                                   HttpServletRequest httpRequest) {
         User user = googleAuthInterface.loginWithGoogle(request.getIdToken(), httpRequest);
 
+        String sessionId = userSessionService.start(user, httpRequest);
         String accessToken = JwtUtil.generateAccessToken(
-                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), sessionId);
         String refreshToken = JwtUtil.generateRefreshToken(
-                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), sessionId);
 
         AuthResponse authResponse = AuthResponse.builder()
                 .accessToken(accessToken)
@@ -163,10 +166,11 @@ public class AuthController {
                                                                   HttpServletRequest httpRequest) {
         User user = githubAuthInterface.loginWithGithub(request.getCode(), request.getRedirectUri(), httpRequest);
 
+        String sessionId = userSessionService.start(user, httpRequest);
         String accessToken = JwtUtil.generateAccessToken(
-                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), sessionId);
         String refreshToken = JwtUtil.generateRefreshToken(
-                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), sessionId);
 
         AuthResponse authResponse = AuthResponse.builder()
                 .accessToken(accessToken)
@@ -185,13 +189,15 @@ public class AuthController {
 
     /** POST /api/v1/auth/sso — nhận OAuth code từ IdP, verify id_token, cấp JWT nội bộ */
     @PostMapping("/sso")
-    public ResponseEntity<ApiResponse<AuthResponse>> ssoLogin(@Valid @RequestBody SsoLoginRequest request) {
+    public ResponseEntity<ApiResponse<AuthResponse>> ssoLogin(@Valid @RequestBody SsoLoginRequest request,
+                                                              HttpServletRequest httpRequest) {
         User user = ssoAuthInterface.loginWithSso(request.getCode(), request.getRedirectUri(), request.getNonce());
 
+        String sessionId = userSessionService.start(user, httpRequest);
         String accessToken = JwtUtil.generateAccessToken(
-                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), sessionId);
         String refreshToken = JwtUtil.generateRefreshToken(
-                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), sessionId);
 
         AuthResponse authResponse = AuthResponse.builder()
                 .accessToken(accessToken)
@@ -203,7 +209,8 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<ApiResponse<AuthResponse>> refresh(@RequestBody Map<String, String> request) {
+    public ResponseEntity<ApiResponse<AuthResponse>> refresh(@RequestBody Map<String, String> request,
+                                                             HttpServletRequest httpRequest) {
         String refreshToken = request.get("refreshToken");
         Claims claims = parseRefreshToken(refreshToken);
         String email = claims.getSubject();
@@ -216,7 +223,21 @@ public class AuthController {
             throw new InvalidAccountException("Phiên đăng nhập không còn hiệu lực. Vui lòng đăng nhập lại.");
         }
 
-        LoginResponse lr = JwtUtils.refreshAccessToken(refreshToken, currentVersion);
+        // Refresh giữ nguyên sid: một lần đăng nhập = một dòng user_session, "last seen" nối dài
+        // tới khi refresh token hết hạn. Token đời trước (không có sid) được cấp phiên tại đây
+        // để thiết bị đó vào danh sách thu hồi được.
+        String sessionId = claims.get("sid", String.class);
+        if (sessionId == null) {
+            sessionId = userSessionService.start(user, httpRequest);
+        } else if (!userSessionService.isLive(sessionId)) {
+            // Phiên đã bị thu hồi (logout / admin khóa / đổi mật khẩu) phải chết cả đường refresh:
+            // nếu không thiết bị đó xin được access token mới mang sid hỏng cho tới hết hạn 7 ngày,
+            // và FE không bao giờ nhận được 401 để đưa người dùng về màn đăng nhập.
+            throw new InvalidAccountException(
+                    "Phiên đăng nhập này đã bị thu hồi. Vui lòng đăng nhập lại.");
+        }
+
+        LoginResponse lr = JwtUtils.refreshAccessToken(refreshToken, currentVersion, sessionId);
         AuthResponse authResponse = AuthResponse.builder()
                 .accessToken(lr.getAccessToken())
                 .refreshToken(lr.getRefreshToken())
@@ -289,7 +310,9 @@ public class AuthController {
     /**
      * POST /api/v1/auth/logout — thu hồi ngay mọi phiên của tài khoản đang đăng nhập.
      * JWT stateless nên không có blacklist: tokenVersion++ làm claim "tv" trong cả access
-     * lẫn refresh token cũ lệch với users.token_version, JwtFilter chặn từ cửa, /refresh hết đường.
+     * lẫn refresh token cũ lệch với users.token_version, JwtFilter chặn từ cửa, /refresh hết đường;
+     * song song mọi dòng user_session bị đóng nên màn "Thiết bị đăng nhập" hết hiện thiết bị.
+     * Thu hồi từng thiết bị: DELETE /api/user/sessions/{id}.
      */
     @PostMapping("/logout")
     @PreAuthorize("isAuthenticated()")

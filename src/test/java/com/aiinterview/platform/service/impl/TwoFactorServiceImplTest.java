@@ -59,6 +59,8 @@ class TwoFactorServiceImplTest {
     private TotpVerifier totpVerifier;
     @Mock
     private PasswordEncoder passwordEncoder;
+    @Mock
+    private com.aiinterview.platform.service.UserSessionService userSessionService;
 
     @InjectMocks
     private TwoFactorServiceImpl service;
@@ -239,6 +241,7 @@ class TwoFactorServiceImplTest {
                 .thenReturn(0L);
         when(loginAttemptRepository.findByEmailAndSuccessFalseAndTimestampAfter(anyString(), any()))
                 .thenReturn(List.of());
+        when(userSessionService.start(eq(user), any())).thenReturn("sid-from-011");
 
         var tokens = service.verifyLoginOtp(
                 JwtUtil.generate2faChallengeToken(EMAIL), "135246", request("203.0.113.9"));
@@ -248,5 +251,8 @@ class TwoFactorServiceImplTest {
         assertFalse(tokens.isMfaRequired());
         // Access token phát hành phải dùng được thật (subject + không còn là challenge).
         assertEquals(EMAIL, JwtUtil.validateAccessToken(tokens.getAccessToken()).getSubject());
+        // Sóng 011: bước hai của luồng 2FA cũng phải mở một dòng user_session.
+        assertEquals("sid-from-011",
+                JwtUtil.validateAccessToken(tokens.getAccessToken()).get("sid", String.class));
     }
 }

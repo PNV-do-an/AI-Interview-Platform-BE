@@ -123,10 +123,11 @@ public class LoginInterfaceImpl implements LoginInterface {
         user.setLockUntil(null);
         userRepository.save(user);
 
+        String sessionId = userSessionService.start(user, request);
         String accessToken = JwtUtil.generateAccessToken(
-                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), sessionId);
         String refreshToken = JwtUtil.generateRefreshToken(
-                user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
+                user.getEmail(), user.getRole().name(), user.getTokenVersion(), sessionId);
 
         return new LoginResponse(accessToken, refreshToken, user.getRole().name());
     }
