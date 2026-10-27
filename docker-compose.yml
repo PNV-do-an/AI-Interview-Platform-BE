@@ -1,0 +1,42 @@
+version: "3.8"
+
+services:
+  ai-service:
+    build: .
+    ports:
+      - "8020:8020"
+    environment:
+      - AI_AVATAR_SERVER=http://livetalking:8010
+      - AI_AVATAR_ID=vn_interviewer_v1
+      - AI_STT_MODEL=small
+      - AI_STT_DEVICE=cpu
+      - AI_STT_COMPUTE=int8
+      - AI_MAX_TURNS=40
+      - AI_RUBRIC_VERSION=2026-10-v1
+    volumes:
+      - ./data:/app/data
+      - ./assets:/app/assets
+      - ./vendored/LiveTalking/models:/app/vendored/LiveTalking/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  livetalking:
+    image: doubiiu/livetalking:v1
+    ports:
+      - "8010:8010"
+    volumes:
+      - ./assets:/app/data/avatars
+      - ./config:/app/config
+      - ./vendored/LiveTalking/models:/app/models/wav2lip
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

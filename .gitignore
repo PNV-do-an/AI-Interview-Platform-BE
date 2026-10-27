@@ -19,3 +19,38 @@ target/
 Thumbs.db
 .vercel
 .env*
+
+# Python / AI Service
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+*.egg-info/
+ai_8020.log
+server_8010.log
+a_test.raw
+*.log
+downloads/*.pdf  # Downloaded transcripts - sensitive data
+
+# Jupyter notebooks (large)
+*.ipynb_checkpoints/
+
+# Model weights (large)
+*.pth
+*.pt
+*.bin
+
+# Video evidence (very large, keep out of git)
+*.mp4
+*.avi
+*.mov
+*.mkv
+a_test.raw
+events*.json
+
+# Docker build artifacts
+docker-compose.override.yml
+
+# Git submodules ignore
+vendored/.git/
+vendored/.github/
