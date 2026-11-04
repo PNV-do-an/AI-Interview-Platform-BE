@@ -1,5 +1,5 @@
-# Spring Boot backend. `Dockerfile` của repo này là bản AI service (Python), nên
-# Render không thể dùng nó để build backend nữa — xem render.yaml.
+# Image Spring Boot backend (Render dùng file này, xem render.yaml: dockerfilePath).
+# AI service (Python/LiveTalking) đã tách sang repo AI-Interview-Platform-AI.
 # Build stage
 FROM maven:3.9.6-eclipse-temurin-17 AS build
 WORKDIR /app
