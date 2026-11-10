@@ -5,9 +5,13 @@ import com.aiinterview.platform.model.dto.request.TopCvBatchImportRequest;
 import com.aiinterview.platform.model.dto.response.TopCvBatchImportResult;
 import com.aiinterview.platform.model.dto.response.TopCvImportResult;
 import com.aiinterview.platform.model.entity.JobDescription;
+import com.aiinterview.platform.model.entity.JobModerationRecord;
 import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.enums.JobStatus;
+import com.aiinterview.platform.model.enums.ModerationAction;
+import com.aiinterview.platform.model.enums.ModerationActorRole;
 import com.aiinterview.platform.model.repository.JobDescriptionRepository;
+import com.aiinterview.platform.model.repository.JobModerationRecordRepository;
 import com.aiinterview.platform.model.repository.UserRepository;
 import com.aiinterview.platform.security.utils.SecurityUtils;
 import com.aiinterview.platform.service.TopCvImportService;
@@ -44,7 +48,7 @@ import java.util.concurrent.Future;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Cào JD từ một URL bài đăng TopCV rồi lưu thành bản nháp để admin kiểm duyệt. */
+/** Cào JD từ TopCV/ITviec, lưu và đăng ngay (OPEN) để tin lên job board. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -79,6 +83,7 @@ public class TopCvImportServiceImpl implements TopCvImportService {
 
     private final ObjectMapper objectMapper;
     private final JobDescriptionRepository jobRepository;
+    private final JobModerationRecordRepository moderationRecordRepository;
     private final UserRepository userRepository;
 
     @Value("${app.topcv.it-listing-url:https://www.topcv.vn/tim-viec-lam-cong-nghe-thong-tin-cr257}")
@@ -169,6 +174,17 @@ public class TopCvImportServiceImpl implements TopCvImportService {
         job.setStatus(JobStatus.OPEN);
         job.setAiSafetyScore(JdPolicyScreener.screen(job).score());
         job = jobRepository.save(job);
+
+        // Tin được admin chủ động đăng ngay, nên ghi một quyết định APPROVED vào lịch sử
+        // kiểm duyệt để màn "Lịch sử kiểm duyệt" cũng thấy các JD đồng bộ này.
+        moderationRecordRepository.save(JobModerationRecord.builder()
+                .job(job)
+                .actor(actor)
+                .actorRole(ModerationActorRole.ADMIN)
+                .action(ModerationAction.APPROVED)
+                .note("Đồng bộ JD IT tự động")
+                .processingSeconds(null)
+                .build());
 
         log.info("Imported and published job {} from {}", job.getId(), uri);
         return TopCvImportResult.builder()

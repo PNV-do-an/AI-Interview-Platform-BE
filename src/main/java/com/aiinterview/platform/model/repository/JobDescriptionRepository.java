@@ -52,6 +52,23 @@ public interface JobDescriptionRepository extends JpaRepository<JobDescription, 
     @Query("SELECT j.status, COUNT(j.id) FROM JobDescription j WHERE j.deletedAt IS NULL GROUP BY j.status")
     List<Object[]> countLiveByStatus();
 
+    /**
+     * JD do admin đồng bộ tự động trước bản cập nhật "đăng ngay + ghi lịch sử": đã OPEN,
+     * chưa từng nộp duyệt (submittedAt/decidedAt null) và đã có điểm sàng lọc.
+     * Dùng một lần lúc khởi động để backfill bản ghi lịch sử kiểm duyệt.
+     */
+    @Query("""
+            SELECT j FROM JobDescription j
+            JOIN FETCH j.employer e
+            WHERE j.deletedAt IS NULL
+              AND j.status = com.aiinterview.platform.model.enums.JobStatus.OPEN
+              AND j.submittedAt IS NULL
+              AND j.decidedAt IS NULL
+              AND j.aiSafetyScore IS NOT NULL
+              AND e.role = com.aiinterview.platform.model.enums.Role.ROLE_ADMIN
+            """)
+    List<JobDescription> findAutoPublishedAdminJobs();
+
     long countByCreatedAtAfterAndDeletedAtIsNull(LocalDateTime since);
 
     long countByDeletedAtIsNullAndStatus(JobStatus status);
