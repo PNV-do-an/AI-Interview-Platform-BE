@@ -34,7 +34,7 @@ public class AdminJobImportController {
             @Valid @RequestBody TopCvImportRequest request) {
         TopCvImportResult result = topCvImportService.importJob(request.getUrl());
         return ResponseEntity.ok(ApiResponse.success(
-                "Đã cào JD \"" + result.getTitle() + "\" từ TopCV và tạo bản nháp", result));
+                "Đã lấy và đăng JD \"" + result.getTitle() + "\" từ TopCV", result));
     }
 
     /**
@@ -49,7 +49,7 @@ public class AdminJobImportController {
             @Valid @RequestBody TopCvBatchImportRequest request) {
         TopCvBatchImportResult result = topCvImportService.importJobs(request);
         return ResponseEntity.ok(ApiResponse.success(
-                "Đã cào " + result.getImported() + " JD từ TopCV và tạo bản nháp", result));
+                "Đã lấy và đăng " + result.getImported() + " JD từ TopCV", result));
     }
 
     /**
@@ -63,7 +63,7 @@ public class AdminJobImportController {
             @RequestParam(value = "limit", required = false, defaultValue = "0") int limit) {
         TopCvBatchImportResult result = topCvImportService.importDefaultItJobs(limit);
         return ResponseEntity.ok(ApiResponse.success(
-                "Đã cào " + result.getImported() + " JD IT từ TopCV và tạo bản nháp", result));
+                "Đã lấy và đăng " + result.getImported() + " JD IT từ TopCV", result));
     }
 
     /**
@@ -76,7 +76,7 @@ public class AdminJobImportController {
             @RequestParam(value = "limit", required = false, defaultValue = "0") int limit) {
         TopCvBatchImportResult result = topCvImportService.importItviecJobs(limit);
         return ResponseEntity.ok(ApiResponse.success(
-                "Đã cào " + result.getImported() + " JD IT từ ITviec và tạo bản nháp", result));
+                "Đã lấy và đăng " + result.getImported() + " JD IT từ ITviec", result));
     }
 
     /**
@@ -91,6 +91,6 @@ public class AdminJobImportController {
         String sourceUrl = result.getSourceUrl();
         String source = sourceUrl != null && sourceUrl.contains("itviec.com") ? "ITviec" : "TopCV";
         return ResponseEntity.ok(ApiResponse.success(
-                "Đã cào " + result.getImported() + " JD IT từ " + source + " và tạo bản nháp", result));
+                "Đã lấy và đăng " + result.getImported() + " JD IT từ " + source, result));
     }
 }

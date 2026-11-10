@@ -11,6 +11,7 @@ import com.aiinterview.platform.model.repository.JobDescriptionRepository;
 import com.aiinterview.platform.model.repository.UserRepository;
 import com.aiinterview.platform.security.utils.SecurityUtils;
 import com.aiinterview.platform.service.TopCvImportService;
+import com.aiinterview.platform.service.ai.JdPolicyScreener;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -146,7 +147,10 @@ public class TopCvImportServiceImpl implements TopCvImportService {
         return new Draft(uri, jd);
     }
 
-    /** Lưu một JD đã bóc tách thành bản nháp; phải chạy trên thread có SecurityContext. */
+    /**
+     * Lưu một JD đã bóc tách và đăng ngay (OPEN) để tin xuất hiện trên job board;
+     * phải chạy trên thread có SecurityContext.
+     */
     private TopCvImportResult createJob(Draft draft) {
         URI uri = draft.uri;
         ParsedJd jd = draft.jd;
@@ -161,10 +165,12 @@ public class TopCvImportServiceImpl implements TopCvImportService {
         job.setDescription(jd.description);
         job.setRequirements(jd.requirements);
         job.setRequiredSkills(jd.requiredSkills);
-        job.setStatus(JobStatus.DRAFT);
+        // Admin đã chủ động lấy tin về nên đăng luôn, không qua hàng chờ duyệt.
+        job.setStatus(JobStatus.OPEN);
+        job.setAiSafetyScore(JdPolicyScreener.screen(job).score());
         job = jobRepository.save(job);
 
-        log.info("Imported JD into draft job {} from {}", job.getId(), uri);
+        log.info("Imported and published job {} from {}", job.getId(), uri);
         return TopCvImportResult.builder()
                 .sourceUrl(uri.toString())
                 .jobId(job.getId())
