@@ -1,6 +1,8 @@
 package com.aiinterview.platform.service.impl;
 
 import com.aiinterview.platform.common.exception.BadRequestException;
+import com.aiinterview.platform.model.dto.request.TopCvBatchImportRequest;
+import com.aiinterview.platform.model.dto.response.TopCvBatchImportResult;
 import com.aiinterview.platform.model.dto.response.TopCvImportResult;
 import com.aiinterview.platform.model.entity.JobDescription;
 import com.aiinterview.platform.model.entity.User;
@@ -44,6 +46,8 @@ public class TopCvImportServiceImpl implements TopCvImportService {
             "<meta\\s+[^>]*>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final Pattern H1_TAG = Pattern.compile(
             "<h1[^>]*>(.*?)</h1>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    private static final Pattern HREF = Pattern.compile(
+            "href\\s*=\\s*[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
     private static final Pattern TAG = Pattern.compile("<[^>]+>", Pattern.DOTALL);
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
@@ -107,6 +111,102 @@ public class TopCvImportServiceImpl implements TopCvImportService {
                 .requirements(job.getRequirements())
                 .requiredSkills(job.getRequiredSkills())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public TopCvBatchImportResult importJobs(TopCvBatchImportRequest request) {
+        int limit = request.getLimit() <= 0 ? 10 : request.getLimit();
+        List<String> targets = new ArrayList<>();
+        String sourceUrl = null;
+
+        if (request.getUrls() != null) {
+            for (String item : request.getUrls()) {
+                if (item != null && !item.isBlank()) {
+                    targets.add(item.trim());
+                }
+            }
+        }
+        if (request.getUrl() != null && !request.getUrl().isBlank()) {
+            sourceUrl = request.getUrl().trim();
+            URI uri = validateUrl(sourceUrl);
+            if (isJobDetailUrl(uri)) {
+                targets.add(0, sourceUrl);
+            } else {
+                // Trang danh sách/tìm kiếm: lấy các link bài đăng cụ thể trong HTML.
+                targets.addAll(discoverJobUrls(uri, limit));
+            }
+        }
+
+        List<String> uniqueTargets = new ArrayList<>(new LinkedHashSet<>(targets));
+        if (uniqueTargets.isEmpty()) {
+            throw new BadRequestException("Không tìm thấy tin tuyển dụng nào trong trang TopCV này");
+        }
+        if (uniqueTargets.size() > limit) {
+            uniqueTargets = new ArrayList<>(uniqueTargets.subList(0, limit));
+        }
+
+        List<TopCvImportResult> items = new ArrayList<>();
+        List<TopCvBatchImportResult.Failure> failures = new ArrayList<>();
+        for (String url : uniqueTargets) {
+            try {
+                items.add(importJob(url));
+            } catch (BadRequestException e) {
+                failures.add(TopCvBatchImportResult.Failure.builder()
+                        .url(url)
+                        .message(e.getMessage())
+                        .build());
+            }
+        }
+
+        return TopCvBatchImportResult.builder()
+                .sourceUrl(sourceUrl)
+                .requested(uniqueTargets.size())
+                .imported(items.size())
+                .failed(failures.size())
+                .items(items)
+                .failures(failures)
+                .build();
+    }
+
+    private List<String> discoverJobUrls(URI listingUri, int limit) {
+        String html = fetch(listingUri);
+        Set<String> urls = new LinkedHashSet<>();
+        Matcher matcher = HREF.matcher(html);
+        while (matcher.find() && urls.size() < limit) {
+            String href = HtmlUtils.htmlUnescape(matcher.group(1)).trim();
+            if (href.isEmpty() || href.startsWith("#") || href.startsWith("javascript:")) {
+                continue;
+            }
+            try {
+                URI resolved = listingUri.resolve(href);
+                if (isJobDetailUrl(resolved)) {
+                    urls.add(stripQuery(resolved).toString());
+                }
+            } catch (IllegalArgumentException ignored) {
+                // href rác trên trang — bỏ qua
+            }
+        }
+        return new ArrayList<>(urls);
+    }
+
+    private static boolean isJobDetailUrl(URI uri) {
+        String host = uri.getHost();
+        String path = uri.getPath();
+        if (host == null || path == null) {
+            return false;
+        }
+        String normalized = host.toLowerCase(Locale.ROOT);
+        boolean topcvHost = normalized.equals("topcv.vn") || normalized.equals("www.topcv.vn");
+        return topcvHost && path.startsWith("/viec-lam/") && path.length() > "/viec-lam/".length();
+    }
+
+    private static URI stripQuery(URI uri) {
+        try {
+            return new URI(uri.getScheme(), uri.getAuthority(), uri.getPath(), null, null);
+        } catch (Exception e) {
+            return uri;
+        }
     }
 
     private URI validateUrl(String rawUrl) {

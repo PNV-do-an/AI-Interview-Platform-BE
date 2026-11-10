@@ -1,7 +1,9 @@
 package com.aiinterview.platform.controller;
 
 import com.aiinterview.platform.common.response.ApiResponse;
+import com.aiinterview.platform.model.dto.request.TopCvBatchImportRequest;
 import com.aiinterview.platform.model.dto.request.TopCvImportRequest;
+import com.aiinterview.platform.model.dto.response.TopCvBatchImportResult;
 import com.aiinterview.platform.model.dto.response.TopCvImportResult;
 import com.aiinterview.platform.service.TopCvImportService;
 import jakarta.validation.Valid;
@@ -32,5 +34,20 @@ public class AdminJobImportController {
         TopCvImportResult result = topCvImportService.importJob(request.getUrl());
         return ResponseEntity.ok(ApiResponse.success(
                 "Đã cào JD \"" + result.getTitle() + "\" từ TopCV và tạo bản nháp", result));
+    }
+
+    /**
+     * POST /api/v1/admin/jobs/import/topcv/batch
+     * Body: {"url":"https://www.topcv.vn/tim-viec-lam-it","limit":20}
+     * hoặc {"urls":["https://www.topcv.vn/viec-lam/...","..."]}.
+     * Một URL trang danh sách sẽ được quét link bài đăng và cào tối đa {@code limit} tin.
+     */
+    @PostMapping("/topcv/batch")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<TopCvBatchImportResult>> importTopCvBatch(
+            @Valid @RequestBody TopCvBatchImportRequest request) {
+        TopCvBatchImportResult result = topCvImportService.importJobs(request);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Đã cào " + result.getImported() + " JD từ TopCV và tạo bản nháp", result));
     }
 }
