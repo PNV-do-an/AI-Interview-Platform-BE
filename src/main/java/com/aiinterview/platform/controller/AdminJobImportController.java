@@ -65,4 +65,32 @@ public class AdminJobImportController {
         return ResponseEntity.ok(ApiResponse.success(
                 "Đã cào " + result.getImported() + " JD IT từ TopCV và tạo bản nháp", result));
     }
+
+    /**
+     * POST /api/v1/admin/jobs/import/itviec/auto?limit=20
+     * Một nút bấm: cào danh sách JD IT từ ITviec.
+     */
+    @PostMapping("/itviec/auto")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<TopCvBatchImportResult>> importItviecAuto(
+            @RequestParam(value = "limit", required = false, defaultValue = "0") int limit) {
+        TopCvBatchImportResult result = topCvImportService.importItviecJobs(limit);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Đã cào " + result.getImported() + " JD IT từ ITviec và tạo bản nháp", result));
+    }
+
+    /**
+     * POST /api/v1/admin/jobs/import/auto?limit=20
+     * Một nút bấm: thử TopCV trước, nếu TopCV chặn thì tự chuyển sang ITviec.
+     */
+    @PostMapping("/auto")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<TopCvBatchImportResult>> importAuto(
+            @RequestParam(value = "limit", required = false, defaultValue = "0") int limit) {
+        TopCvBatchImportResult result = topCvImportService.importAutoItJobs(limit);
+        String sourceUrl = result.getSourceUrl();
+        String source = sourceUrl != null && sourceUrl.contains("itviec.com") ? "ITviec" : "TopCV";
+        return ResponseEntity.ok(ApiResponse.success(
+                "Đã cào " + result.getImported() + " JD IT từ " + source + " và tạo bản nháp", result));
+    }
 }

@@ -39,9 +39,13 @@ app:
   # Có thể override bằng env khi deploy. Proxy/cookie dùng khi TopCV chặn IP server.
   topcv:
     it-listing-url: ${TOPCV_IT_LISTING_URL:https://www.topcv.vn/tim-viec-lam-cong-nghe-thong-tin-cr257?type_keyword=1&disable_auto_detect_type_keyword=1&sba=1&category_family=r257&saturday_status=0}
-    default-limit: ${TOPCV_IMPORT_LIMIT:20}
+    itviec-listing-url: ${ITVIEC_IT_LISTING_URL:https://itviec.com/it-jobs}
+    default-limit: ${TOPCV_IMPORT_LIMIT:10}
     proxy-url: ${TOPCV_PROXY_URL:}
     cookie: ${TOPCV_COOKIE:}
+    # Dịch vụ scraping có xử lý Cloudflare; {url} được thay bằng link cần tải (đã encode).
+    # Ví dụ: https://api.scraperapi.com/?api_key=KEY&url={url}
+    scraper-api-url: ${TOPCV_SCRAPER_API_URL:}
     user-agent: ${TOPCV_USER_AGENT:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36}
   # FR-SCH-03: nhắc lịch phỏng vấn. Mặc định tắt vì job gửi Gmail thật; bật bằng
   # INTERVIEW_REMINDER_ENABLED=true. window-minutes phải khớp nhịp cron bên dưới.

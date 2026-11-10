@@ -17,4 +17,10 @@ public interface TopCvImportService {
 
     /** Một nút bấm: cào danh sách JD IT mặc định (app.topcv.it-listing-url). */
     TopCvBatchImportResult importDefaultItJobs(int limit);
+
+    /** Cào danh sách JD IT từ ITviec (app.topcv.itviec-listing-url). */
+    TopCvBatchImportResult importItviecJobs(int limit);
+
+    /** Ưu tiên TopCV, tự chuyển sang ITviec nếu TopCV bị chặn. */
+    TopCvBatchImportResult importAutoItJobs(int limit);
 }

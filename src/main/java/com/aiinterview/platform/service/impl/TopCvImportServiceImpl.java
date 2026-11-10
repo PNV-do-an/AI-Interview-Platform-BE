@@ -24,6 +24,7 @@ import org.springframework.web.util.HtmlUtils;
 import java.net.InetSocketAddress;
 import java.net.ProxySelector;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -34,6 +35,11 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -52,6 +58,7 @@ public class TopCvImportServiceImpl implements TopCvImportService {
             "<h1[^>]*>(.*?)</h1>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final Pattern HREF = Pattern.compile(
             "href\\s*=\\s*[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ITVIEC_JOB_PATH = Pattern.compile("^/it-jobs/[^/]+-\\d{3,6}$");
     private static final Pattern TAG = Pattern.compile("<[^>]+>", Pattern.DOTALL);
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
@@ -76,7 +83,18 @@ public class TopCvImportServiceImpl implements TopCvImportService {
     @Value("${app.topcv.it-listing-url:https://www.topcv.vn/tim-viec-lam-cong-nghe-thong-tin-cr257}")
     private String itListingUrl;
 
-    @Value("${app.topcv.default-limit:20}")
+    @Value("${app.topcv.itviec-listing-url:https://itviec.com/it-jobs}")
+    private String itviecListingUrl;
+
+    /**
+     * URL của dịch vụ scraping có xử lý Cloudflare, dùng {@code {url}} làm chỗ chèn
+     * link cần tải (đã URL-encode). Ví dụ:
+     * {@code https://api.scraperapi.com/?api_key=KEY&url={url}}.
+     */
+    @Value("${app.topcv.scraper-api-url:}")
+    private String scraperApiUrl;
+
+    @Value("${app.topcv.default-limit:10}")
     private int defaultLimit;
 
     @Value("${app.topcv.proxy-url:}")
@@ -112,19 +130,31 @@ public class TopCvImportServiceImpl implements TopCvImportService {
     @Override
     @Transactional
     public TopCvImportResult importJob(String rawUrl) {
+        return createJob(prepare(rawUrl));
+    }
+
+    /** Tải và bóc tách JD, chưa đụng tới DB — an toàn để chạy song song. */
+    private Draft prepare(String rawUrl) {
         URI uri = validateUrl(rawUrl);
         String html = fetch(uri);
         ParsedJd jd = parse(html);
 
         if (jd.title == null || jd.title.isBlank()) {
-            throw new BadRequestException("Không bóc tách được tiêu đề tin tuyển dụng từ URL TopCV này");
+            throw new BadRequestException("Không bóc tách được tiêu đề tin tuyển dụng từ URL "
+                    + uri.getHost() + " này");
         }
+        return new Draft(uri, jd);
+    }
 
+    /** Lưu một JD đã bóc tách thành bản nháp; phải chạy trên thread có SecurityContext. */
+    private TopCvImportResult createJob(Draft draft) {
+        URI uri = draft.uri;
+        ParsedJd jd = draft.jd;
         User actor = SecurityUtils.getCurrentUser(userRepository);
         JobDescription job = new JobDescription();
         job.setEmployer(actor);
         job.setTitle(jd.title.trim());
-        job.setCompanyName(jd.companyName == null || jd.companyName.isBlank() ? "TopCV" : jd.companyName.trim());
+        job.setCompanyName(resolveCompanyName(jd.companyName, uri));
         job.setPosition(jd.position == null || jd.position.isBlank() ? jd.title.trim() : jd.position.trim());
         job.setLocation(jd.location);
         job.setSalaryRange(jd.salaryRange);
@@ -134,7 +164,7 @@ public class TopCvImportServiceImpl implements TopCvImportService {
         job.setStatus(JobStatus.DRAFT);
         job = jobRepository.save(job);
 
-        log.info("Imported TopCV JD into draft job {} from {}", job.getId(), uri);
+        log.info("Imported JD into draft job {} from {}", job.getId(), uri);
         return TopCvImportResult.builder()
                 .sourceUrl(uri.toString())
                 .jobId(job.getId())
@@ -176,7 +206,7 @@ public class TopCvImportServiceImpl implements TopCvImportService {
 
         List<String> uniqueTargets = new ArrayList<>(new LinkedHashSet<>(targets));
         if (uniqueTargets.isEmpty()) {
-            throw new BadRequestException("Không tìm thấy tin tuyển dụng nào trong trang TopCV này");
+            throw new BadRequestException("Không tìm thấy tin tuyển dụng nào trong trang danh sách này");
         }
         if (uniqueTargets.size() > limit) {
             uniqueTargets = new ArrayList<>(uniqueTargets.subList(0, limit));
@@ -184,13 +214,46 @@ public class TopCvImportServiceImpl implements TopCvImportService {
 
         List<TopCvImportResult> items = new ArrayList<>();
         List<TopCvBatchImportResult.Failure> failures = new ArrayList<>();
+
+        // Tải & bóc tách song song để 20 tin vẫn xong trong vài giây; lưu DB tuần tự.
+        List<Callable<Draft>> tasks = new ArrayList<>();
         for (String url : uniqueTargets) {
+            tasks.add(() -> prepare(url));
+        }
+        int threads = Math.min(4, Math.max(1, tasks.size()));
+        ExecutorService pool = Executors.newFixedThreadPool(threads, runnable -> {
+            Thread thread = new Thread(runnable, "job-import");
+            thread.setDaemon(true);
+            return thread;
+        });
+        List<Future<Draft>> futures;
+        try {
+            futures = pool.invokeAll(tasks);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BadRequestException("Quá trình cào dữ liệu bị gián đoạn");
+        } finally {
+            pool.shutdownNow();
+        }
+
+        for (int i = 0; i < futures.size(); i++) {
+            String url = uniqueTargets.get(i);
             try {
-                items.add(importJob(url));
-            } catch (BadRequestException e) {
+                items.add(createJob(futures.get(i).get()));
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause() == null ? e : e.getCause();
+                String message = cause instanceof BadRequestException
+                        ? cause.getMessage()
+                        : "Không cào được tin tuyển dụng này";
                 failures.add(TopCvBatchImportResult.Failure.builder()
                         .url(url)
-                        .message(e.getMessage())
+                        .message(message)
+                        .build());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                failures.add(TopCvBatchImportResult.Failure.builder()
+                        .url(url)
+                        .message("Bị gián đoạn khi cào tin")
                         .build());
             }
         }
@@ -213,6 +276,36 @@ public class TopCvImportServiceImpl implements TopCvImportService {
         request.setUrl(itListingUrl);
         request.setLimit(effective);
         return importJobs(request);
+    }
+
+    @Override
+    @Transactional
+    public TopCvBatchImportResult importItviecJobs(int limit) {
+        int effective = limit <= 0 ? defaultLimit : Math.min(limit, 50);
+        TopCvBatchImportRequest request = new TopCvBatchImportRequest();
+        request.setUrl(itviecListingUrl);
+        request.setLimit(effective);
+        return importJobs(request);
+    }
+
+    /**
+     * Một nút bấm, ưu tiên TopCV; nếu TopCV chặn (Cloudflare 403) thì tự chuyển
+     * sang ITviec để vẫn lấy được JD IT. Nguồn thực tế nằm ở {@code sourceUrl}.
+     */
+    @Override
+    @Transactional
+    public TopCvBatchImportResult importAutoItJobs(int limit) {
+        int effective = limit <= 0 ? defaultLimit : Math.min(limit, 50);
+        try {
+            TopCvBatchImportResult topCv = importDefaultItJobs(effective);
+            if (topCv.getImported() > 0) {
+                return topCv;
+            }
+            log.warn("TopCV import returned no jobs, falling back to ITviec");
+        } catch (BadRequestException e) {
+            log.warn("TopCV import failed ({}), falling back to ITviec", e.getMessage());
+        }
+        return importItviecJobs(effective);
     }
 
     private List<String> discoverJobUrls(URI listingUri, int limit) {
@@ -243,8 +336,13 @@ public class TopCvImportServiceImpl implements TopCvImportService {
             return false;
         }
         String normalized = host.toLowerCase(Locale.ROOT);
-        boolean topcvHost = normalized.equals("topcv.vn") || normalized.equals("www.topcv.vn");
-        return topcvHost && path.startsWith("/viec-lam/") && path.length() > "/viec-lam/".length();
+        if (normalized.equals("topcv.vn") || normalized.equals("www.topcv.vn")) {
+            return path.startsWith("/viec-lam/") && path.length() > "/viec-lam/".length();
+        }
+        if (normalized.equals("itviec.com") || normalized.equals("www.itviec.com")) {
+            return ITVIEC_JOB_PATH.matcher(path).matches();
+        }
+        return false;
     }
 
     private static URI stripQuery(URI uri) {
@@ -275,14 +373,52 @@ public class TopCvImportServiceImpl implements TopCvImportService {
             throw new BadRequestException("URL không hợp lệ");
         }
         String normalized = host.toLowerCase(Locale.ROOT);
-        if (!normalized.equals("topcv.vn") && !normalized.equals("www.topcv.vn")) {
-            throw new BadRequestException("Chỉ nhận URL thuộc tên miền topcv.vn");
+        if (!isAllowedHost(normalized)) {
+            throw new BadRequestException("Chỉ nhận URL thuộc tên miền topcv.vn hoặc itviec.com");
         }
         return uri;
     }
 
+    private static boolean isAllowedHost(String host) {
+        return host.equals("topcv.vn") || host.equals("www.topcv.vn")
+                || host.equals("itviec.com") || host.equals("www.itviec.com");
+    }
+
+    private static String resolveCompanyName(String companyName, URI uri) {
+        if (companyName != null && !companyName.isBlank()) {
+            return companyName.trim();
+        }
+        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+        return host.contains("itviec") ? "ITviec" : "TopCV";
+    }
+
     private String fetch(URI uri) {
-        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(uri)
+        int maxAttempts = 3;
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return fetchOnce(uri);
+            } catch (RetryableStatusException e) {
+                if (attempt >= maxAttempts) {
+                    throw new BadRequestException(uri.getHost() + " trả về HTTP " + e.status
+                            + " (bị giới hạn tần suất). Thử lại sau hoặc giảm số lượng tin mỗi lần.");
+                }
+                try {
+                    Thread.sleep(500L * attempt);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new BadRequestException("Bị gián đoạn khi tải trang " + uri.getHost());
+                }
+            }
+        }
+    }
+
+    private String fetchOnce(URI uri) {
+        URI requestUri = uri;
+        if (scraperApiUrl != null && !scraperApiUrl.isBlank()) {
+            String encoded = URLEncoder.encode(uri.toString(), StandardCharsets.UTF_8);
+            requestUri = URI.create(scraperApiUrl.trim().replace("{url}", encoded));
+        }
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(requestUri)
                 .timeout(REQUEST_TIMEOUT)
                 .header("User-Agent", userAgent)
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
@@ -295,23 +431,40 @@ public class TopCvImportServiceImpl implements TopCvImportService {
             HttpResponse<String> response = httpClient.send(request,
                     HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             int status = response.statusCode();
+            if (status == 429 || status == 503) {
+                throw new RetryableStatusException(status);
+            }
             if (status < 200 || status >= 300) {
                 if (status == 403) {
                     throw new BadRequestException(
-                            "TopCV đang chặn truy cập tự động (Cloudflare HTTP 403). "
-                                    + "Cần chạy backend từ IP/proxy khác hoặc dùng nguồn dữ liệu thay thế.");
+                            "Trang " + uri.getHost() + " đang chặn truy cập tự động (Cloudflare HTTP 403). "
+                                    + "Cấu hình TOPCV_COOKIE (cookie cf_clearance từ trình duyệt), "
+                                    + "TOPCV_PROXY_URL (proxy IP khác) hoặc TOPCV_SCRAPER_API_URL "
+                                    + "(dịch vụ scraping) rồi thử lại.");
                 }
-                throw new BadRequestException("TopCV trả về HTTP " + status + ", không tải được tin tuyển dụng");
+                throw new BadRequestException(uri.getHost() + " trả về HTTP " + status
+                        + ", không tải được tin tuyển dụng");
             }
             if (response.body() == null || response.body().isBlank()) {
-                throw new BadRequestException("Trang TopCV trả về nội dung rỗng");
+                throw new BadRequestException("Trang " + uri.getHost() + " trả về nội dung rỗng");
             }
             return response.body();
-        } catch (BadRequestException e) {
+        } catch (BadRequestException | RetryableStatusException e) {
             throw e;
         } catch (Exception e) {
-            log.warn("Cannot fetch TopCV URL {}: {}", uri, e.getMessage());
-            throw new BadRequestException("Không tải được trang TopCV. Vui lòng kiểm tra lại link hoặc thử lại sau.");
+            log.warn("Cannot fetch URL {}: {}", uri, e.getMessage());
+            throw new BadRequestException("Không tải được trang " + uri.getHost()
+                    + ". Vui lòng kiểm tra lại link hoặc thử lại sau.");
+        }
+    }
+
+    /** HTTP 429/503 — tạm thời, có thể thử lại. */
+    private static final class RetryableStatusException extends RuntimeException {
+        private final int status;
+
+        private RetryableStatusException(int status) {
+            super("HTTP " + status);
+            this.status = status;
         }
     }
 
@@ -605,5 +758,16 @@ public class TopCvImportServiceImpl implements TopCvImportService {
         private String description;
         private String requirements;
         private String requiredSkills;
+    }
+
+    /** JD đã tải & bóc tách, chờ lưu DB. */
+    private static final class Draft {
+        private final URI uri;
+        private final ParsedJd jd;
+
+        private Draft(URI uri, ParsedJd jd) {
+            this.uri = uri;
+            this.jd = jd;
+        }
     }
 }
