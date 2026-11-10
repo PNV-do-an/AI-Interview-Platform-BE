@@ -150,6 +150,9 @@ public class MockInterviewServiceImpl implements MockInterviewService {
                         .question(question)
                         .build());
         answer.setAnswerText(selectedText);
+        answer.setOptionsJson(quizQuestion.getOptionsJson());
+        answer.setCorrectAnswer(options.get(quizQuestion.getCorrectOptionIndex()));
+        answer.setSelectedOptionIndex(hasValidIndex ? selectedIndex : null);
         answer.setDurationSec(request.getDurationSec());
         answer.setScore(score);
         answer.setFeedback(feedback);
@@ -326,10 +329,14 @@ public class MockInterviewServiceImpl implements MockInterviewService {
     public InterviewResultResponse getResult(User candidate, Long sessionId) {
         InterviewSession session = ownSession(candidate, sessionId);
         List<InterviewAnswer> answers = answerRepository.findBySessionOrderByQuestionIndexAsc(session);
+        int correctCount = (int) answers.stream().filter(a -> a.getScore() != null && a.getScore() >= 100).count();
         return InterviewResultResponse.builder()
                 .session(InterviewSessionResponse.from(session, answers.size()))
                 .answers(answers.stream().map(InterviewAnswerResponse::from).toList())
                 .transcript(answers.stream().map(InterviewTranscriptEntry::from).toList())
+                .totalQuestions(session.getQuestions().size())
+                .correctCount(correctCount)
+                .score(session.getOverallScore())
                 .build();
     }
 

@@ -30,6 +30,19 @@ public class InterviewAnswer {
     @Column(length = 10000)
     private String answerText;
 
+    /** Các lựa chọn của câu hỏi trắc nghiệm (JSON array), để FE hiển thị lại ở màn kết quả. */
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String optionsJson;
+
+    /** Đáp án đúng (nội dung lựa chọn). */
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String correctAnswer;
+
+    /** Chỉ số đáp án người dùng chọn (0-based). */
+    private Integer selectedOptionIndex;
+
     /** Seconds the candidate spent on this question */
     private Integer durationSec;
 

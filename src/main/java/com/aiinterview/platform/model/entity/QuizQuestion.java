@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
+import jakarta.persistence.Lob;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -26,7 +27,8 @@ public class QuizQuestion {
     @Column(name = "question", nullable = false, length = 2000)
     private String question;
 
-    @Column(name = "options", nullable = false, length = 4000)
+    @Lob
+    @Column(name = "options", nullable = false, columnDefinition = "TEXT")
     private String optionsJson;
 
     @Column(name = "correct_option_index", nullable = false)
