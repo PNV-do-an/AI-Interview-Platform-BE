@@ -13,6 +13,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -49,5 +50,19 @@ public class AdminJobImportController {
         TopCvBatchImportResult result = topCvImportService.importJobs(request);
         return ResponseEntity.ok(ApiResponse.success(
                 "Đã cào " + result.getImported() + " JD từ TopCV và tạo bản nháp", result));
+    }
+
+    /**
+     * POST /api/v1/admin/jobs/import/topcv/auto?limit=20
+     * Một nút bấm: không cần URL, BE tự dùng danh sách JD IT mặc định
+     * (app.topcv.it-listing-url) rồi cào tối đa {@code limit} tin.
+     */
+    @PostMapping("/topcv/auto")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<TopCvBatchImportResult>> importTopCvAuto(
+            @RequestParam(value = "limit", required = false, defaultValue = "0") int limit) {
+        TopCvBatchImportResult result = topCvImportService.importDefaultItJobs(limit);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Đã cào " + result.getImported() + " JD IT từ TopCV và tạo bản nháp", result));
     }
 }

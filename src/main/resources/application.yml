@@ -35,6 +35,14 @@ app:
     expiration: 86400000
     refresh-expiration: 604800000
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
+  # Cào JD IT TopCV bằng một nút bấm: URL danh sách mặc định + giới hạn mỗi lần.
+  # Có thể override bằng env khi deploy. Proxy/cookie dùng khi TopCV chặn IP server.
+  topcv:
+    it-listing-url: ${TOPCV_IT_LISTING_URL:https://www.topcv.vn/tim-viec-lam-cong-nghe-thong-tin-cr257?type_keyword=1&disable_auto_detect_type_keyword=1&sba=1&category_family=r257&saturday_status=0}
+    default-limit: ${TOPCV_IMPORT_LIMIT:20}
+    proxy-url: ${TOPCV_PROXY_URL:}
+    cookie: ${TOPCV_COOKIE:}
+    user-agent: ${TOPCV_USER_AGENT:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36}
   # FR-SCH-03: nhắc lịch phỏng vấn. Mặc định tắt vì job gửi Gmail thật; bật bằng
   # INTERVIEW_REMINDER_ENABLED=true. window-minutes phải khớp nhịp cron bên dưới.
   interview-reminder:

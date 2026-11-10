@@ -13,12 +13,16 @@ import com.aiinterview.platform.security.utils.SecurityUtils;
 import com.aiinterview.platform.service.TopCvImportService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.util.HtmlUtils;
 
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -68,10 +72,42 @@ public class TopCvImportServiceImpl implements TopCvImportService {
     private final ObjectMapper objectMapper;
     private final JobDescriptionRepository jobRepository;
     private final UserRepository userRepository;
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(CONNECT_TIMEOUT)
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build();
+
+    @Value("${app.topcv.it-listing-url:https://www.topcv.vn/tim-viec-lam-cong-nghe-thong-tin-cr257}")
+    private String itListingUrl;
+
+    @Value("${app.topcv.default-limit:20}")
+    private int defaultLimit;
+
+    @Value("${app.topcv.proxy-url:}")
+    private String proxyUrl;
+
+    @Value("${app.topcv.cookie:}")
+    private String cookie;
+
+    @Value("${app.topcv.user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            + "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36}")
+    private String userAgent;
+
+    private HttpClient httpClient;
+
+    @PostConstruct
+    void initHttpClient() {
+        HttpClient.Builder builder = HttpClient.newBuilder()
+                .connectTimeout(CONNECT_TIMEOUT)
+                .followRedirects(HttpClient.Redirect.NORMAL);
+        if (proxyUrl != null && !proxyUrl.isBlank()) {
+            try {
+                URI proxy = URI.create(proxyUrl.trim());
+                int port = proxy.getPort() > 0 ? proxy.getPort() : 8080;
+                builder.proxy(ProxySelector.of(new InetSocketAddress(proxy.getHost(), port)));
+                log.info("TopCV import uses proxy {}:{}", proxy.getHost(), port);
+            } catch (Exception e) {
+                log.warn("Ignoring invalid app.topcv.proxy-url '{}': {}", proxyUrl, e.getMessage());
+            }
+        }
+        httpClient = builder.build();
+    }
 
     @Override
     @Transactional
@@ -169,6 +205,16 @@ public class TopCvImportServiceImpl implements TopCvImportService {
                 .build();
     }
 
+    @Override
+    @Transactional
+    public TopCvBatchImportResult importDefaultItJobs(int limit) {
+        int effective = limit <= 0 ? defaultLimit : Math.min(limit, 50);
+        TopCvBatchImportRequest request = new TopCvBatchImportRequest();
+        request.setUrl(itListingUrl);
+        request.setLimit(effective);
+        return importJobs(request);
+    }
+
     private List<String> discoverJobUrls(URI listingUri, int limit) {
         String html = fetch(listingUri);
         Set<String> urls = new LinkedHashSet<>();
@@ -236,14 +282,15 @@ public class TopCvImportServiceImpl implements TopCvImportService {
     }
 
     private String fetch(URI uri) {
-        HttpRequest request = HttpRequest.newBuilder(uri)
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(uri)
                 .timeout(REQUEST_TIMEOUT)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        + "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+                .header("User-Agent", userAgent)
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .header("Accept-Language", "vi,en;q=0.9")
-                .GET()
-                .build();
+                .header("Accept-Language", "vi,en;q=0.9");
+        if (cookie != null && !cookie.isBlank()) {
+            requestBuilder.header("Cookie", cookie.trim());
+        }
+        HttpRequest request = requestBuilder.GET().build();
         try {
             HttpResponse<String> response = httpClient.send(request,
                     HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));

@@ -14,4 +14,7 @@ public interface TopCvImportService {
      * danh sách/tìm kiếm TopCV để tự phát hiện các bài đăng bên trong.
      */
     TopCvBatchImportResult importJobs(TopCvBatchImportRequest request);
+
+    /** Một nút bấm: cào danh sách JD IT mặc định (app.topcv.it-listing-url). */
+    TopCvBatchImportResult importDefaultItJobs(int limit);
 }
