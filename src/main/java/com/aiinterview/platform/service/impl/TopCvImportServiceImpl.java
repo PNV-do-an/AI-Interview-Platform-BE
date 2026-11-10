@@ -249,6 +249,11 @@ public class TopCvImportServiceImpl implements TopCvImportService {
                     HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             int status = response.statusCode();
             if (status < 200 || status >= 300) {
+                if (status == 403) {
+                    throw new BadRequestException(
+                            "TopCV đang chặn truy cập tự động (Cloudflare HTTP 403). "
+                                    + "Cần chạy backend từ IP/proxy khác hoặc dùng nguồn dữ liệu thay thế.");
+                }
                 throw new BadRequestException("TopCV trả về HTTP " + status + ", không tải được tin tuyển dụng");
             }
             if (response.body() == null || response.body().isBlank()) {
