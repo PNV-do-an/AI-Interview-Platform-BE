@@ -1,5 +1,6 @@
 package com.aiinterview.platform.model.dto.response;
 
+import com.aiinterview.platform.model.dto.response.QuizQuestionResponse;
 import com.aiinterview.platform.model.entity.InterviewSession;
 import com.aiinterview.platform.model.enums.InterviewMode;
 import com.aiinterview.platform.model.enums.InterviewSessionStatus;
@@ -20,7 +21,7 @@ public class InterviewSessionResponse {
     private String jobTitle;
     private String companyName;
     private InterviewSessionStatus status;
-    private List<String> questions;
+    private List<QuizQuestionResponse> questions;
     private int currentQuestionIndex;
     private int answeredCount;
     private Integer overallScore;
@@ -36,7 +37,14 @@ public class InterviewSessionResponse {
                 .jobTitle(s.getJob() != null ? s.getJob().getTitle() : null)
                 .companyName(s.getJob() != null ? s.getJob().getCompanyName() : null)
                 .status(s.getStatus())
-                .questions(s.getQuestions())
+                .questions(s.getQuestions().stream()
+                        .map(q -> QuizQuestionResponse.builder()
+                                .question(q.getQuestion())
+                                .text(q.getQuestion())
+                                .options(q.getOptions())
+                                .choices(q.getOptions())
+                                .build())
+                        .toList())
                 .currentQuestionIndex(s.getCurrentQuestionIndex())
                 .answeredCount(answeredCount)
                 .overallScore(s.getOverallScore())

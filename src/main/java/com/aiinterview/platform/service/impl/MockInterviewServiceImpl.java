@@ -14,6 +14,7 @@ import com.aiinterview.platform.model.dto.response.InterviewTranscriptEntry;
 import com.aiinterview.platform.model.entity.InterviewAnswer;
 import com.aiinterview.platform.model.entity.InterviewReport;
 import com.aiinterview.platform.model.entity.InterviewSession;
+import com.aiinterview.platform.model.entity.QuizQuestion;
 import com.aiinterview.platform.model.entity.JobDescription;
 import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.enums.InterviewMode;
@@ -92,6 +93,9 @@ public class MockInterviewServiceImpl implements MockInterviewService {
             throw new BadRequestException("Phiên phỏng vấn đã kết thúc");
         }
         if (session.getMode() == InterviewMode.AVATAR) {
+            if (!isPresent(request.getAnswerText())) {
+                throw new BadRequestException("Câu trả lời không được để trống");
+            }
             return submitAvatarTurn(session, request);
         }
         if (isPresent(request.getQuestionText())) {
@@ -103,11 +107,40 @@ public class MockInterviewServiceImpl implements MockInterviewService {
             throw new BadRequestException("Tất cả câu hỏi đã được trả lời");
         }
 
-        String question = session.getQuestions().get(index);
-        Set<String> keywords = session.getMode() == InterviewMode.MOCK
-                ? aiEngine.extractKeywords(session.getJob(), question)
-                : aiEngine.extractKeywords(session.getTopic(), question);
-        InterviewAiEngine.ScoreResult result = aiEngine.evaluate(request.getAnswerText(), keywords);
+        QuizQuestion quizQuestion = session.getQuestions().get(index);
+        String question = quizQuestion.getQuestion();
+        List<String> options = quizQuestion.getOptions();
+
+        Integer selectedIndex = request.getSelectedOptionIndex();
+        if (selectedIndex == null) {
+            selectedIndex = mapAnswerToOptionIndex(request.getAnswerText(), options);
+        }
+
+        boolean hasValidIndex = selectedIndex != null && selectedIndex >= 0 && selectedIndex < options.size();
+        boolean providedIndex = request.getSelectedOptionIndex() != null;
+        if (providedIndex && !hasValidIndex) {
+            throw new BadRequestException("Vui lòng chọn một đáp án");
+        }
+        if (!providedIndex && selectedIndex == null && !isPresent(request.getAnswerText())) {
+            throw new BadRequestException("Vui lòng chọn một đáp án");
+        }
+
+        int score;
+        String selectedText;
+        String feedback;
+        if (hasValidIndex) {
+            boolean correct = selectedIndex == quizQuestion.getCorrectOptionIndex();
+            score = correct ? 100 : 0;
+            selectedText = options.get(selectedIndex);
+            feedback = correct
+                    ? "Chính xác."
+                    : "Sai. Đáp án đúng là: " + options.get(quizQuestion.getCorrectOptionIndex()) + ".";
+        } else {
+            // Giữ tương thích với luồng tự luận cũ: không chọn đáp án thì chấm 0 điểm.
+            score = 0;
+            selectedText = isPresent(request.getAnswerText()) ? request.getAnswerText().trim() : "";
+            feedback = "Sai. Đáp án đúng là: " + options.get(quizQuestion.getCorrectOptionIndex()) + ".";
+        }
 
         InterviewAnswer answer = answerRepository
                 .findBySessionAndQuestionIndex(session, index)
@@ -116,10 +149,10 @@ public class MockInterviewServiceImpl implements MockInterviewService {
                         .questionIndex(index)
                         .question(question)
                         .build());
-        answer.setAnswerText(request.getAnswerText());
+        answer.setAnswerText(selectedText);
         answer.setDurationSec(request.getDurationSec());
-        answer.setScore(result.score());
-        answer.setFeedback(result.feedback());
+        answer.setScore(score);
+        answer.setFeedback(feedback);
         answerRepository.save(answer);
 
         session.setCurrentQuestionIndex(index + 1);
@@ -328,6 +361,40 @@ public class MockInterviewServiceImpl implements MockInterviewService {
 
     private static boolean isPresent(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private Integer mapAnswerToOptionIndex(String answerText, List<String> options) {
+        if (!isPresent(answerText) || options == null || options.isEmpty()) {
+            return null;
+        }
+        String a = answerText.trim();
+        // Ký tự A/B/C/D
+        if (a.length() == 1) {
+            char c = Character.toUpperCase(a.charAt(0));
+            if (c >= 'A' && c < 'A' + options.size()) {
+                return c - 'A';
+            }
+            if (Character.isDigit(c)) {
+                int n = c - '1';
+                if (n >= 0 && n < options.size()) {
+                    return n;
+                }
+            }
+        }
+        // "A." hoặc "A)" ...
+        if (a.length() >= 2 && (a.charAt(1) == '.' || a.charAt(1) == ')' || a.charAt(1) == ':')) {
+            char c = Character.toUpperCase(a.charAt(0));
+            if (c >= 'A' && c < 'A' + options.size()) {
+                return c - 'A';
+            }
+        }
+        // Khớp nội dung đáp án
+        for (int i = 0; i < options.size(); i++) {
+            if (options.get(i).equalsIgnoreCase(a)) {
+                return i;
+            }
+        }
+        return null;
     }
 
     private InterviewSession ownSession(User candidate, Long sessionId) {

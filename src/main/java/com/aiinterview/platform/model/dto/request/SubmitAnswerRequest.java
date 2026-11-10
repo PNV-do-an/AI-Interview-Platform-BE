@@ -2,7 +2,6 @@ package com.aiinterview.platform.model.dto.request;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -16,9 +15,12 @@ public class SubmitAnswerRequest {
     @Size(max = 2000, message = "Câu hỏi tối đa 2000 ký tự")
     private String questionText;
 
-    @NotBlank(message = "Câu trả lời không được để trống")
     @Size(max = 10000, message = "Câu trả lời tối đa 10000 ký tự")
     private String answerText;
+
+    /** Chỉ số đáp án được chọn (0-based) cho câu hỏi trắc nghiệm MOCK/KNOWLEDGE. */
+    @Min(value = 0, message = "selectedOptionIndex không được âm")
+    private Integer selectedOptionIndex;
 
     private Integer durationSec;
 

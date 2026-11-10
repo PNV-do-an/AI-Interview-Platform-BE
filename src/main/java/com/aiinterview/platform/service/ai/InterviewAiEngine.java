@@ -1,6 +1,7 @@
 package com.aiinterview.platform.service.ai;
 
 import com.aiinterview.platform.model.entity.JobDescription;
+import com.aiinterview.platform.model.entity.QuizQuestion;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -31,34 +32,82 @@ public class InterviewAiEngine {
             "Những câu hỏi phỏng vấn phổ biến về {topic} và cách bạn trả lời chúng?"
     );
 
-    /** Generates questions for a MOCK interview based on the job's required skills. */
-    public List<String> generateMockQuestions(JobDescription job, int count) {
-        List<String> questions = new ArrayList<>();
+    /** Generates multiple-choice questions for a MOCK interview based on the job's required skills. */
+    public List<QuizQuestion> generateMockQuestions(JobDescription job, int count) {
+        List<QuizQuestion> questions = new ArrayList<>();
         List<String> skills = parseSkills(job.getRequiredSkills());
+        String jobTitle = job.getTitle() == null ? "vị trí này" : job.getTitle();
 
         for (String skill : skills) {
             if (questions.size() >= count) break;
-            questions.add("Hãy mô tả kinh nghiệm thực tế của bạn với " + skill + " — dự án nào đã dùng và vai trò của bạn?");
+            questions.add(QuizQuestion.of(
+                    "Kỹ năng nào sau đây là yêu cầu chính của vị trí " + jobTitle + "?",
+                    List.of(skill, "Microsoft Word", "Excel cơ bản", "Gõ bàn phím"),
+                    0));
             if (questions.size() < count) {
-                questions.add("Một vấn đề khó thường gặp khi làm việc với " + skill + " là gì và cách bạn giải quyết?");
+                questions.add(QuizQuestion.of(
+                        "Điều nào sau đây thường là thách thức khi làm việc với " + skill + "?",
+                        List.of("Cần hiểu sâu khái niệm và debug", "Không cần học thêm", "Chỉ cần giao diện đẹp", "Không có khó khăn"),
+                        0));
             }
         }
-        for (String behavioral : BEHAVIORAL_QUESTIONS) {
-            if (questions.size() >= count) break;
-            questions.add(behavioral);
+        List<String> behavioralQuestions = List.of(
+                "Khi làm việc nhóm, điều nào sau đây là best practice?",
+                "Khi deadline gấp, bạn nên ưu tiên điều gì?",
+                "Điểm mạnh trong công việc nên được thể hiện như thế nào?");
+        List<List<String>> behavioralOptions = List.of(
+                List.of("Giao tiếp rõ ràng và phân chia nhiệm vụ", "Làm một mình không báo cáo", "Tránh nhận feedback", "Bỏ qua testing"),
+                List.of("Ưu tiên task quan trọng và có thể bàn giao sớm", "Làm tất cả cùng lúc", "Bỏ qua review", "Chờ deadline rồi mới bắt đầu"),
+                List.of("Bằng ví dụ cụ thể và kết quả đo được", "Chỉ nói chung chung", "Phóng đại thành tích", "Không cần dẫn chứng"));
+        for (int i = 0; i < behavioralQuestions.size() && questions.size() < count; i++) {
+            questions.add(QuizQuestion.of(behavioralQuestions.get(i), behavioralOptions.get(i), 0));
+        }
+        if (questions.size() > count) {
+            questions = new ArrayList<>(questions.subList(0, count));
+        }
+        // Đảm bảo đủ số câu bằng câu hỏi tổng quát
+        while (questions.size() < count) {
+            questions.add(QuizQuestion.of(
+                    "Vị trí " + jobTitle + " đòi hỏi điều gì nhất?",
+                    List.of("Kỹ năng chuyên môn phù hợp", "Không cần kinh nghiệm", "Chỉ cần ngoại hình", "Không cần làm việc nhóm"),
+                    0));
         }
         return questions.subList(0, Math.min(count, questions.size()));
     }
 
-    /** Generates questions for a KNOWLEDGE practice session on a topic. */
-    public List<String> generateKnowledgeQuestions(String topic, int count) {
-        List<String> questions = new ArrayList<>();
+    /** Generates multiple-choice questions for a KNOWLEDGE practice session on a topic. */
+    public List<QuizQuestion> generateKnowledgeQuestions(String topic, int count) {
+        List<QuizQuestion> questions = new ArrayList<>();
         String t = topic.trim();
-        for (String template : KNOWLEDGE_TEMPLATES) {
-            if (questions.size() >= count) break;
-            questions.add(template.replace("{topic}", t));
+        String[] templates = {
+                "Khái niệm nào sau đây đúng về {topic}?",
+                "Đâu là best practice khi làm việc với {topic}?",
+                "Khi debug trong {topic}, bước nào nên làm trước?",
+                "Điều nào giúp tối ưu hiệu năng trong {topic}?",
+                "Quy trình xây dựng tính năng bằng {topic} bắt đầu từ đâu?",
+                "Câu hỏi phỏng vấn nào sau đây liên quan đến {topic}?"
+        };
+        List<List<String>> optionSets = List.of(
+                List.of(t + " là một công nghệ/phương pháp để giải quyết bài toán", "Không liên quan đến phần mềm", "Chỉ dùng để vẽ giao diện", "Chỉ dùng để lưu trữ dữ liệu"),
+                List.of("Viết code rõ ràng, có test và review", "Bỏ qua tài liệu", "Không cần version control", "Code càng ngắn càng tốt"),
+                List.of("Tái hiện lỗi và đọc log", "Đoán mò và sửa ngẫu nhiên", "Xóa toàn bộ code", "Bỏ qua vì không quan trọng"),
+                List.of("Đo lường trước, tối ưu chỗ nghẽn", "Tối ưu tất cả mọi nơi", "Dùng thuật toán phức tạp nhất", "Bỏ qua cache"),
+                List.of("Thu thập yêu cầu và thiết kế giải pháp", "Viết code ngay không plan", "Bỏ qua kiểm thử", "Triển khai rồi mới thiết kế"),
+                List.of("Giải thích khái niệm cốt lõi và ví dụ thực tế", "Chỉ trả lời một từ", "Đổi chủ đề", "Từ chối trả lời")
+        );
+        for (int i = 0; i < templates.length && questions.size() < count; i++) {
+            questions.add(QuizQuestion.of(
+                    templates[i].replace("{topic}", t),
+                    optionSets.get(i),
+                    0));
         }
-        return questions;
+        while (questions.size() < count) {
+            questions.add(QuizQuestion.of(
+                    "Điều nào sau đây là đúng về " + t + "?",
+                    List.of(t + " có các khái niệm và best practices riêng", "Không cần học", "Chỉ dành cho chuyên gia", "Không có ứng dụng thực tế"),
+                    0));
+        }
+        return questions.subList(0, Math.min(count, questions.size()));
     }
 
     /** Extracts scoring keywords from job data for MOCK mode. */

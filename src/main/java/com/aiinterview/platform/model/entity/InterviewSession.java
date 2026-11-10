@@ -44,10 +44,9 @@ public class InterviewSession {
 
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "interview_session_questions", joinColumns = @JoinColumn(name = "session_id"))
-    @Column(name = "question", nullable = false)
     @Builder.Default
     @OrderColumn(name = "idx")
-    private List<String> questions = new ArrayList<>();
+    private List<QuizQuestion> questions = new ArrayList<>();
 
     @Column(nullable = false)
     @Builder.Default

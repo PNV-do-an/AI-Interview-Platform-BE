@@ -14,6 +14,7 @@ public class InterviewAnswerResponse {
     private String answerText;
     private Integer durationSec;
     private Integer score;
+    private Boolean correct;
     private String feedback;
 
     public static InterviewAnswerResponse from(InterviewAnswer a) {
@@ -24,6 +25,7 @@ public class InterviewAnswerResponse {
                 .answerText(a.getAnswerText())
                 .durationSec(a.getDurationSec())
                 .score(a.getScore())
+                .correct(a.getScore() != null && a.getScore() >= 100)
                 .feedback(a.getFeedback())
                 .build();
     }
