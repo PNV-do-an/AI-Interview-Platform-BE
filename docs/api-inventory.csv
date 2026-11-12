@@ -129,3 +129,4 @@
 128,Khác,TwoFactorController POST /api/v1/auth/2fa/disable,/api/v1/auth/2fa/disable,POST,,,"API mới, chưa có trong sheet cũ; cần bổ sung request/response."
 129,Hồ sơ & tài khoản,ProfileController GET /api/user/profile,/api/user/profile,GET,,,"API mới, chưa có trong sheet cũ; cần bổ sung request/response."
 130,Hồ sơ & tài khoản,ProfileController DELETE /api/user/avatar,/api/user/avatar,DELETE,,,"API mới, chưa có trong sheet cũ; cần bổ sung request/response."
+131,Chuyên gia Mentor,Danh sách mentor/chuyên gia,/api/v1/mentors,GET,,"[{""id"":1,""fullName"":""Nguyen Van A"",""avatar"":""data:image/..."",""rating"":4.5,""reviewCount"":12}]",Public; tra ve tai khoan role INTERVIEWER dang hoat dong kem diem danh gia trung binh va so review.
