@@ -41,6 +41,9 @@ public interface UserRepository {
 
     long countByRoleAndDeletedAtIsNull(Role role);
 
+    /** Live accounts of a given role, dùng cho trang danh sách mentor/chuyên gia. */
+    List<User> findByRoleAndDeletedAtIsNull(Role role);
+
     /** Dashboard: live accounts per role, rows are {@code [Role, Long]} — one pass, no N+1. */
     List<Object[]> countLiveByRole();
 
