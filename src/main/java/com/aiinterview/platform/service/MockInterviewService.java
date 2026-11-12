@@ -16,9 +16,13 @@ public interface MockInterviewService {
 
     InterviewAnswerResponse submitAnswer(User candidate, Long sessionId, SubmitAnswerRequest request);
 
+    /** Kết thúc phiên; phiên AVATAR tự tạo báo cáo rubric từ transcript, không cần ứng viên nộp. */
     InterviewResultResponse finish(User candidate, Long sessionId);
 
-    /** Nộp rubric 5 chiều cho phiên AVATAR đã COMPLETED; BE tự tính điểm tổng. Chỉ nộp một lần. */
+    /**
+     * Nộp rubric 5 chiều do AI service chấm cho phiên AVATAR đã COMPLETED.
+     * Có thể thay báo cáo tự động đúng một lần; sau đó báo cáo là snapshot cố định.
+     */
     InterviewReportResponse submitEvaluation(User candidate, Long sessionId, InterviewEvaluationRequest request);
 
     /** Báo cáo avatar — chỉ chính chủ phiên đọc được (Phạm vi 6 spec 012). */

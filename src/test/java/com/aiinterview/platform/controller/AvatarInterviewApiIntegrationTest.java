@@ -14,6 +14,7 @@ import com.aiinterview.platform.model.repository.InterviewSessionRepository;
 import com.aiinterview.platform.model.repository.InterviewSlotRepository;
 import com.aiinterview.platform.model.repository.JobDescriptionRepository;
 import com.aiinterview.platform.model.repository.UserRepository;
+import com.aiinterview.platform.service.ai.AvatarReportEvaluator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -273,11 +274,17 @@ class AvatarInterviewApiIntegrationTest {
     // ==================== 7–8. evaluation và report ==========
 
     @Test
-    @DisplayName("07: rubric đúng → report có, tổng = trung bình 5 chiều; overallScore=999 trong body bị bỏ qua")
+    @DisplayName("07: rubric AI thay báo cáo tự động, tổng = trung bình 5 chiều; overallScore=999 bị bỏ qua")
     void testEvaluationComputesTotal() throws Exception {
         long id = startAvatar();
         expect(turn(id, "Câu 0", "Trả lời 0", true, null), 200, null);
         expect(call(post("/api/v1/mock-interviews/" + id + "/finish", null), candidate), 200, null);
+
+        // finish đã tự tạo báo cáo, đúng một dòng
+        assertEquals(1, count("select count(*) from interview_report"),
+                "finish phải tạo báo cáo tự động, không chờ ứng viên nộp");
+        assertEquals(AvatarReportEvaluator.AUTO_RUBRIC_VERSION, jdbcTemplate.queryForObject(
+                "select rubric_version from interview_report where session_id = ?", String.class, id));
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("rubric", goodRubric());
@@ -309,23 +316,32 @@ class AvatarInterviewApiIntegrationTest {
     }
 
     @Test
-    @DisplayName("08: rubric thiếu chiều / 101 / 75.5 / thừa chiều / strengths quá trần / nộp khi chưa finish thì 400, interview_report không có dòng")
+    @DisplayName("08: rubric sai hoặc nộp khi chưa finish thì 400; báo cáo tự động vẫn nguyên, không lưu nửa rubric")
     void testEvaluationRejectsBadRubric() throws Exception {
         long id = startAvatar();
         expect(turn(id, "Câu 0", "Trả lời 0", true, null), 200, null);
 
-        // còn IN_PROGRESS
+        // còn IN_PROGRESS: chưa chấm, chưa có báo cáo
         expect(call(post("/api/v1/mock-interviews/" + id + "/evaluation", evaluationBody(goodRubric())), candidate),
                 400, "Phiên chưa kết thúc");
         assertEquals(0, count("select count(*) from interview_report"));
+        expect(call(get("/api/v1/mock-interviews/" + id + "/report"), candidate), 404,
+                "Chưa có báo cáo cho phiên phỏng vấn này");
 
         expect(call(post("/api/v1/mock-interviews/" + id + "/finish", null), candidate), 200, null);
+        assertEquals(1, count("select count(*) from interview_report"), "finish phải tự tạo báo cáo");
+
+        // client không được mượn đúng version tự động để thay báo cáo nhiều lần
+        expect(call(post("/api/v1/mock-interviews/" + id + "/evaluation",
+                evaluationBody(goodRubric(), AvatarReportEvaluator.AUTO_RUBRIC_VERSION)), candidate),
+                400, "rubricVersion không được dùng version của báo cáo tự động");
+        assertEquals(AvatarReportEvaluator.AUTO_RUBRIC_VERSION, jdbcTemplate.queryForObject(
+                "select rubric_version from interview_report where session_id = ?", String.class, id));
 
         Map<String, Object> missing = goodRubric();
         missing.remove("duAn");
         expect(call(post("/api/v1/mock-interviews/" + id + "/evaluation", evaluationBody(missing)), candidate),
                 400, "thiếu chiều [duAn]");
-        assertEquals(0, count("select count(*) from interview_report"));
 
         Map<String, Object> outOfRange = goodRubric();
         outOfRange.put("duAn", 101);
@@ -347,17 +363,16 @@ class AvatarInterviewApiIntegrationTest {
         expect(call(post("/api/v1/mock-interviews/" + id + "/evaluation", evaluationBody(negative)), candidate),
                 400, "không phải số nguyên 0..100 [truyenDat]");
 
-        assertEquals(0, count("select count(*) from interview_report"),
-                "mọi rubric sai phải kết thúc ở 0 dòng, không phải nửa rubric được lưu");
+        assertEquals(1, count("select count(*) from interview_report"),
+                "rubric sai không được xóa hay nhân đôi báo cáo tự động");
+        assertEquals(AvatarReportEvaluator.AUTO_RUBRIC_VERSION, jdbcTemplate.queryForObject(
+                "select rubric_version from interview_report where session_id = ?", String.class, id),
+                "rubric sai không được ghi đè báo cáo đang có");
 
         // rubricVersion bắt buộc
         expect(call(post("/api/v1/mock-interviews/" + id + "/evaluation",
                 evaluationBody(goodRubric(), "  ")), candidate), 400, null);
-        assertEquals(0, count("select count(*) from interview_report"));
-
-        // report chưa có thì 404 đúng thông điệp
-        expect(call(get("/api/v1/mock-interviews/" + id + "/report"), candidate), 404,
-                "Chưa có báo cáo cho phiên phỏng vấn này");
+        assertEquals(1, count("select count(*) from interview_report"));
 
         // trần của hai ô TEXT: không chặn ở DTO thì chết ở DB và trả 500
         Map<String, Object> tooLong = new LinkedHashMap<>();
@@ -366,11 +381,16 @@ class AvatarInterviewApiIntegrationTest {
         tooLong.put("strengths", "s".repeat(4001));
         expect(call(post("/api/v1/mock-interviews/" + id + "/evaluation",
                 objectMapper.writeValueAsString(tooLong)), candidate), 400, "Dữ liệu không hợp lệ");
-        assertEquals(0, count("select count(*) from interview_report"));
+        assertEquals(1, count("select count(*) from interview_report"));
+        assertEquals(AvatarReportEvaluator.AUTO_RUBRIC_VERSION, jdbcTemplate.queryForObject(
+                "select rubric_version from interview_report where session_id = ?", String.class, id));
         tooLong.put("strengths", "s".repeat(4000));
         expect(call(post("/api/v1/mock-interviews/" + id + "/evaluation",
                 objectMapper.writeValueAsString(tooLong)), candidate), 200, null);
-        assertEquals(1, count("select count(*) from interview_report"));
+        assertEquals(1, count("select count(*) from interview_report"),
+                "rubric AI hợp lệ thay thế báo cáo tự động, vẫn một dòng");
+        assertEquals("2026-10-v1", jdbcTemplate.queryForObject(
+                "select rubric_version from interview_report where session_id = ?", String.class, id));
     }
 
     // ==================== 9. trần 40 lượt ==========
@@ -398,6 +418,9 @@ class AvatarInterviewApiIntegrationTest {
                 .path("data");
         assertEquals("COMPLETED", finished.path("session").path("status").asText());
         assertEquals(40, finished.path("transcript").size());
+        assertEquals(AvatarReportEvaluator.AUTO_RUBRIC_VERSION,
+                finished.path("report").path("rubricVersion").asText(),
+                "finish phải trả kèm báo cáo tự động của phiên avatar");
     }
 
     // ==================== 11. không đụng luồng có chủ ==========
@@ -455,6 +478,64 @@ class AvatarInterviewApiIntegrationTest {
         assertEquals(0, count("select count(*) from interview_report"),
                 "còn dòng report là FK chặn xóa, endpoint trả 500");
         expect(call(get("/api/v1/mock-interviews/" + id), candidate), 404, "Không tìm thấy phiên phỏng vấn");
+    }
+
+    // ==================== 13–14. báo cáo tự động ==========
+
+    @Test
+    @DisplayName("13: finish AVATAR tự tạo báo cáo từ transcript, trả kèm trong result, không cần gọi evaluation")
+    void testFinishAutoCreatesAvatarReport() throws Exception {
+        long id = startAvatar();
+        expect(turn(id, "Câu 0",
+                "Em đã triển khai dự án thanh toán cho khách hàng, phân tích nguyên nhân lỗi và "
+                        + "đưa ra giải pháp tối ưu; kết quả giảm 40% thời gian xử lý.",
+                true, null), 200, null);
+        // bản nháp chưa chốt không được tính vào báo cáo
+        expect(turn(id, "Câu 1", "Bản nháp chưa chốt", false, null), 200, null);
+
+        JsonNode finished = read(call(post("/api/v1/mock-interviews/" + id + "/finish", null), candidate))
+                .path("data");
+        JsonNode report = finished.path("report");
+        assertFalse(report.isMissingNode() || report.isNull(), "finish phải trả kèm report");
+        assertEquals(AvatarReportEvaluator.AUTO_RUBRIC_VERSION, report.path("rubricVersion").asText());
+        assertEquals(id, report.path("sessionId").asLong());
+        assertTrue(report.path("chuyenMon").asInt() >= 0 && report.path("chuyenMon").asInt() <= 100);
+        assertTrue(report.path("duAn").asInt() >= 0 && report.path("duAn").asInt() <= 100);
+        assertTrue(report.path("tuDuy").asInt() >= 0 && report.path("tuDuy").asInt() <= 100);
+        assertTrue(report.path("truyenDat").asInt() >= 0 && report.path("truyenDat").asInt() <= 100);
+        assertTrue(report.path("mucKhop").asInt() >= 0 && report.path("mucKhop").asInt() <= 100);
+        int expectedTotal = (int) Math.round((report.path("chuyenMon").asInt()
+                + report.path("duAn").asInt() + report.path("tuDuy").asInt()
+                + report.path("truyenDat").asInt() + report.path("mucKhop").asInt()) / 5.0);
+        assertEquals(expectedTotal, report.path("overallScore").asInt());
+        assertFalse(report.path("strengths").asText().isBlank());
+        assertFalse(report.path("improvements").asText().isBlank());
+        assertEquals(1, count("select count(*) from interview_report"));
+
+        // GET report và GET result cùng trả báo cáo đó
+        JsonNode fetched = read(call(get("/api/v1/mock-interviews/" + id + "/report"), candidate)).path("data");
+        assertEquals(report.path("id").asLong(), fetched.path("id").asLong());
+        assertEquals(report.path("overallScore").asInt(), fetched.path("overallScore").asInt());
+        JsonNode result = read(call(get("/api/v1/mock-interviews/" + id), candidate)).path("data");
+        assertEquals(report.path("id").asLong(), result.path("report").path("id").asLong());
+
+        // finish lần hai không tạo báo cáo mới, cũng không đổi báo cáo đang có
+        JsonNode again = read(call(post("/api/v1/mock-interviews/" + id + "/finish", null), candidate)).path("data");
+        assertEquals(report.path("id").asLong(), again.path("report").path("id").asLong());
+        assertEquals(1, count("select count(*) from interview_report"));
+    }
+
+    @Test
+    @DisplayName("14: finish MOCK/KNOWLEDGE không tạo interview_report — báo cáo tự động chỉ dành cho AVATAR")
+    void testFinishNonAvatarDoesNotCreateReport() throws Exception {
+        long id = startSession("{\"mode\":\"MOCK\",\"jobId\":" + job.getId() + ",\"questionCount\":3}");
+        expect(turn(id, null, "Trả lời câu trắc nghiệm", null, null), 200, null);
+
+        JsonNode finished = read(call(post("/api/v1/mock-interviews/" + id + "/finish", null), candidate))
+                .path("data");
+        assertTrue(finished.path("report").isMissingNode() || finished.path("report").isNull(),
+                "phiên không phải AVATAR không có rubric 5 chiều");
+        assertEquals(0, count("select count(*) from interview_report"));
     }
 
     // ==================== helpers ==========

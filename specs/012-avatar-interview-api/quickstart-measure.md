@@ -3,7 +3,7 @@
 ## Cách đo
 
 ```bash
-# Integration full-loop trên MySQL thật (Testcontainers mysql:8.0) — 12 test
+# Integration full-loop trên MySQL thật (Testcontainers mysql:8.0) — 14 test
 mvn -B -o test -Dtest='AvatarInterviewApiIntegrationTest'
 ```
 
@@ -20,6 +20,16 @@ MSYS_NO_PATHCONV=1 docker run --rm \
   -w /app maven:3.9-eclipse-temurin-17 \
   mvn -B -o test -Dtest='AvatarInterviewApiIntegrationTest'
 ```
+
+## Kết quả đo 2026-11-12 (báo cáo tự động sau finish)
+
+- `AvatarInterviewApiIntegrationTest`: **14/14** xanh — `58.69 s`, chạy trên Docker Desktop
+  (MySQL 8.0 Testcontainers), Java 17 + Maven 3.9.6.
+- `AvatarReportEvaluatorTest` (unit, không cần Docker): **3/3** xanh — `0.02 s`.
+- Case mới: finish AVATAR tạo đúng một report và trả kèm trong `report`; finish lần hai không nhân
+  đôi; bản nháp chưa chốt không được tính; finish MOCK/KNOWLEDGE không tạo report.
+- Case rubric AI: report tự động bị thay đúng một lần; rubric sai (thiếu chiều / ngoài khoảng /
+  không nguyên / thừa chiều / version rỗng / strengths 4001) trả 400 và **không** xóa report đang có.
 
 ## Kết quả đo 2026-10-26
 
@@ -49,12 +59,14 @@ MSYS_NO_PATHCONV=1 docker run --rm \
 | 4 | `questionText` 2001 ký tự → 400; `answerText` 10001 → 400; cột không đổi | xanh — kèm chiều ngược lại: đúng trần 2000/10000 thì 200, chứng minh 400 ở trên là do trần |
 | 5 | `questionText` gửi vào phiên MOCK/KNOWLEDGE → 400 "Chế độ này không nhận câu hỏi từ client" | xanh — và đường cũ của KNOWLEDGE (chỉ `answerText`) vẫn 200, index vẫn nhích |
 | 6 | phiên của ứng viên khác: GET / answer / evaluation / finish → 403 | xanh — 403 chứ không 404, transcript vẫn 0 dòng, session vẫn `IN_PROGRESS` |
-| 7 | rubric đúng → report có, tổng = trung bình 5 chiều; body gửi `overallScore=999` vẫn ra 74 | xanh — `(80+70+75+60+85)/5 = 74`; kiểm tra cả dòng `interview_report` bằng SQL; body nhét thêm `audioBase64` bị bỏ qua vô điều kiện; nộp lần hai → 400, vẫn 1 dòng report |
-| 8 | rubric thiếu chiều / 101 / 75.5 / thừa `ngoaiHinh` / -1 / thiếu `rubricVersion` / `strengths` 4001 ký tự / nộp khi chưa finish → 400 | xanh — message nêu đích danh chiều sai (`thiếu chiều [duAn]`, `không phải số nguyên 0..100 [tuDuy]`, `chiều không có trong thang chấm [ngoaiHinh]`); `interview_report` kết thúc ở **0 dòng**; đúng trần 4000 thì 200 và có đúng 1 dòng |
+| 7 | rubric AI thay báo cáo tự động → tổng = trung bình 5 chiều; body gửi `overallScore=999` vẫn ra 74 | xanh — finish đã có sẵn 1 report tự động; `(80+70+75+60+85)/5 = 74`; kiểm tra cả dòng `interview_report` bằng SQL; body nhét thêm `audioBase64` bị bỏ qua; nộp lần hai → 400, vẫn 1 dòng report |
+| 8 | rubric thiếu chiều / 101 / 75.5 / thừa `ngoaiHinh` / -1 / thiếu `rubricVersion` / `strengths` 4001 ký tự / nộp khi chưa finish → 400 | xanh — message nêu đích danh chiều sai; trước finish: 0 report + GET report 404; sau finish: 1 report tự động; mọi rubric sai trả 400 và **không** xóa/ghi đè report đó; gửi `rubricVersion` trùng version tự động cũng 400 (chặn thay nhiều lần); đúng trần 4000 thì 200 và thay report tự động, vẫn 1 dòng |
 | 9 | lượt thứ 41 → 400 "Phiên đã đạt số lượt tối đa, hãy kết thúc" | xanh — 40 lượt đầu đều 200, `interview_answers` vẫn **40 dòng**, index vẫn 40; **nháp** cũng bị trần chặn; finish giữa chừng vẫn được và trả đủ 40 lượt transcript |
 | 10 | INTERVIEWER / ADMIN / ứng viên khác gọi `GET /{id}/report` → 403 | xanh — chính chủ đọc được 200 với `overallScore=74` |
 | 11 | cả luồng avatar không đổi bản ghi `applications` / `interview_slots` | xanh — so **nguyên hàng** `select *` trước/sau bằng `queryForMap`, kể cả `updated_at`; `overallScore` của session vẫn `null` (không phải 0 giả) |
 | 12 | (thêm) `DELETE /{id}` phiên đã có report | xanh — `interview_report` là bảng mới có FK `session_id`, không xóa trước thì endpoint chết 500; sau khi xóa: 0 answer, 0 report, GET → 404 |
+| 13 | (thêm) finish AVATAR tự tạo báo cáo từ transcript | xanh — response `finish` có `report`, version `v1-auto-be-2026-11`, 5 chiều trong 0..100, tổng = trung bình; bản nháp chưa chốt không được tính; GET result/report trả cùng report id; finish lần hai không nhân đôi |
+| 14 | (thêm) finish MOCK/KNOWLEDGE không tạo report | xanh — `report` null và `interview_report` 0 dòng, báo cáo tự động chỉ dành cho AVATAR |
 
 ## Hợp đồng đã đổi so với nền cũ (báo FE/AI)
 
@@ -83,6 +95,9 @@ MSYS_NO_PATHCONV=1 docker run --rm \
 7. **Trần độ dài chặn ngay ở DTO** cho cả bốn ô text: `questionText` 2000, `answerText` 10000
    (đúng biên cột), `strengths` / `improvements` 4000. Hai ô cuối là cột TEXT nên không đặt trần thì
    payload quá dài chết ở DB và trả 500 thay vì 400.
+8. **`finish` AVATAR tạo báo cáo tự động** (2026-11-12): không còn phụ thuộc việc ứng viên gọi
+   `POST /{id}/evaluation`. Response `finish` và `GET /{id}` có thêm `report`; `evaluation` chỉ còn
+   là đường thay thế báo cáo tự động bằng rubric AI, đúng một lần.
 
 ## Chưa đo / còn mở
 

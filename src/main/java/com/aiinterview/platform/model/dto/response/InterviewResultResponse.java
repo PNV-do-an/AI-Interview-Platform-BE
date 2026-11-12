@@ -16,4 +16,6 @@ public class InterviewResultResponse {
     private Integer totalQuestions;
     private Integer correctCount;
     private Integer score;
+    /** Báo cáo rubric của phiên AVATAR; null với MOCK/KNOWLEDGE hoặc khi báo cáo chưa được tạo. */
+    private InterviewReportResponse report;
 }

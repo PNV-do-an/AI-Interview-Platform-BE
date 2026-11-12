@@ -64,7 +64,10 @@ public class MockInterviewController {
         return ResponseEntity.ok(ApiResponse.success(mockInterviewService.submitAnswer(candidate, id, request)));
     }
 
-    /** POST /api/v1/mock-interviews/{id}/finish — complete session and get overall score */
+    /**
+     * POST /api/v1/mock-interviews/{id}/finish — kết thúc phiên.
+     * Phiên AVATAR tự tạo báo cáo rubric từ transcript và trả kèm trong {@code report}.
+     */
     @PostMapping("/{id}/finish")
     @PreAuthorize("hasRole('USER')")
     public ResponseEntity<ApiResponse<InterviewResultResponse>> finish(@PathVariable Long id) {
@@ -72,7 +75,10 @@ public class MockInterviewController {
         return ResponseEntity.ok(ApiResponse.success(mockInterviewService.finish(candidate, id)));
     }
 
-    /** POST /api/v1/mock-interviews/{id}/evaluation — nộp rubric 5 chiều cho phiên AVATAR đã kết thúc */
+    /**
+     * POST /api/v1/mock-interviews/{id}/evaluation — tuỳ chọn: thay báo cáo tự động bằng rubric
+     * 5 chiều do AI service chấm. Chỉ thay được đúng một lần.
+     */
     @PostMapping("/{id}/evaluation")
     @PreAuthorize("hasRole('USER')")
     public ResponseEntity<ApiResponse<InterviewReportResponse>> submitEvaluation(

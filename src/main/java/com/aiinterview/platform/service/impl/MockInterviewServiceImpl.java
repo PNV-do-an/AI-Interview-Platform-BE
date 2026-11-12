@@ -24,6 +24,7 @@ import com.aiinterview.platform.model.repository.InterviewReportRepository;
 import com.aiinterview.platform.model.repository.InterviewSessionRepository;
 import com.aiinterview.platform.model.repository.JobDescriptionRepository;
 import com.aiinterview.platform.service.MockInterviewService;
+import com.aiinterview.platform.service.ai.AvatarReportEvaluator;
 import com.aiinterview.platform.service.ai.InterviewAiEngine;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -54,6 +55,7 @@ public class MockInterviewServiceImpl implements MockInterviewService {
     private final InterviewReportRepository reportRepository;
     private final JobDescriptionRepository jobRepository;
     private final InterviewAiEngine aiEngine;
+    private final AvatarReportEvaluator avatarReportEvaluator;
 
     @Override
     @Transactional
@@ -211,8 +213,8 @@ public class MockInterviewServiceImpl implements MockInterviewService {
     @Transactional
     public InterviewResultResponse finish(User candidate, Long sessionId) {
         InterviewSession session = ownSession(candidate, sessionId);
+        List<InterviewAnswer> answers = answerRepository.findBySessionOrderByQuestionIndexAsc(session);
         if (session.getStatus() != InterviewSessionStatus.COMPLETED) {
-            List<InterviewAnswer> answers = answerRepository.findBySessionOrderByQuestionIndexAsc(session);
             if (session.getMode() != InterviewMode.AVATAR) {
                 double avg = answers.stream()
                         .filter(a -> a.getScore() != null)
@@ -221,12 +223,42 @@ public class MockInterviewServiceImpl implements MockInterviewService {
                         .orElse(0);
                 session.setOverallScore(answers.isEmpty() ? 0 : (int) Math.round(avg));
             }
-            // Phiên avatar để overallScore null: điểm thật do rubric nộp sau đó, không phải trung bình 0.
+            // Phiên avatar để overallScore null: điểm thật nằm ở interview_report, không phải trung bình 0.
             session.setStatus(InterviewSessionStatus.COMPLETED);
             session.setCompletedAt(LocalDateTime.now());
             sessionRepository.save(session);
         }
+        if (session.getMode() == InterviewMode.AVATAR) {
+            // Kết thúc là có báo cáo ngay; ứng viên không phải bấm nộp rubric.
+            ensureAvatarReport(session, answers);
+        }
         return getResult(candidate, sessionId);
+    }
+
+    /**
+     * Tạo báo cáo tự động từ transcript đã chốt nếu phiên AVATAR chưa có báo cáo.
+     * Báo cáo do AI service gửi lên sau đó có thể thay thế bản tự động này một lần.
+     */
+    private void ensureAvatarReport(InterviewSession session, List<InterviewAnswer> answers) {
+        if (reportRepository.findBySession(session).isPresent()) {
+            return;
+        }
+        AvatarReportEvaluator.Evaluation evaluation = avatarReportEvaluator.evaluate(answers);
+        InterviewReport report = InterviewReport.builder()
+                .session(session)
+                .chuyenMon(evaluation.chuyenMon())
+                .duAn(evaluation.duAn())
+                .tuDuy(evaluation.tuDuy())
+                .truyenDat(evaluation.truyenDat())
+                .mucKhop(evaluation.mucKhop())
+                .overallScore(evaluation.overallScore())
+                .strengths(evaluation.strengths())
+                .improvements(evaluation.improvements())
+                .rubricVersion(evaluation.rubricVersion())
+                .build();
+        InterviewReport saved = reportRepository.save(report);
+        log.info("Avatar auto evaluation stored: reportId={}, sessionId={}, overallScore={}",
+                saved.getId(), session.getId(), saved.getOverallScore());
     }
 
     @Override
@@ -240,28 +272,37 @@ public class MockInterviewServiceImpl implements MockInterviewService {
         if (session.getMode() != InterviewMode.AVATAR) {
             throw new BadRequestException("Rubric chỉ dùng cho phiên phỏng vấn avatar");
         }
-        if (reportRepository.findBySession(session).isPresent()) {
+        InterviewReport existing = reportRepository.findBySession(session).orElse(null);
+        if (existing != null && !AvatarReportEvaluator.AUTO_RUBRIC_VERSION.equals(existing.getRubricVersion())) {
             throw new BadRequestException("Báo cáo đã được nộp cho phiên này");
         }
 
+        // Version tự động là cờ nội bộ, không phải giá trị client được phép nộp; nếu không chặn,
+        // client có thể gửi lại đúng version này để thay báo cáo nhiều lần.
+        String rubricVersion = request.getRubricVersion().trim();
+        if (AvatarReportEvaluator.AUTO_RUBRIC_VERSION.equals(rubricVersion)) {
+            throw new BadRequestException("rubricVersion không được dùng version của báo cáo tự động");
+        }
+
+        // Validate trước khi sửa báo cáo tự động: rubric sai không được làm mất báo cáo đang có.
         int[] dims = validateRubric(request.getRubric());
         int total = (int) Math.round((dims[0] + dims[1] + dims[2] + dims[3] + dims[4]) / (double) dims.length);
 
-        InterviewReport report = InterviewReport.builder()
-                .session(session)
-                .chuyenMon(dims[0])
-                .duAn(dims[1])
-                .tuDuy(dims[2])
-                .truyenDat(dims[3])
-                .mucKhop(dims[4])
-                .overallScore(total)
-                .strengths(request.getStrengths())
-                .improvements(request.getImprovements())
-                .rubricVersion(request.getRubricVersion().trim())
-                .build();
+        InterviewReport report = existing != null
+                ? existing
+                : InterviewReport.builder().session(session).build();
+        report.setChuyenMon(dims[0]);
+        report.setDuAn(dims[1]);
+        report.setTuDuy(dims[2]);
+        report.setTruyenDat(dims[3]);
+        report.setMucKhop(dims[4]);
+        report.setOverallScore(total);
+        report.setStrengths(request.getStrengths());
+        report.setImprovements(request.getImprovements());
+        report.setRubricVersion(rubricVersion);
         InterviewReport saved = reportRepository.save(report);
-        log.info("Avatar evaluation stored: reportId={}, sessionId={}, overallScore={}",
-                saved.getId(), sessionId, total);
+        log.info("Avatar evaluation stored: reportId={}, sessionId={}, overallScore={}, replacesAuto={}",
+                saved.getId(), sessionId, total, existing != null);
         return InterviewReportResponse.from(saved);
     }
 
@@ -337,6 +378,9 @@ public class MockInterviewServiceImpl implements MockInterviewService {
                 .totalQuestions(session.getQuestions().size())
                 .correctCount(correctCount)
                 .score(session.getOverallScore())
+                .report(reportRepository.findBySession(session)
+                        .map(InterviewReportResponse::from)
+                        .orElse(null))
                 .build();
     }
 

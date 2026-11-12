@@ -60,9 +60,9 @@ BE chỉ làm đúng điều attachment mục 7 giao: *manage business data and 
 | POST | `/api/v1/mock-interviews` | ROLE_USER | `mode=AVATAR` + `jobId` hợp lệ → session `IN_PROGRESS`, `questions` **rỗng** (chưa sinh trước), `currentQuestionIndex=0` |
 | POST | `/api/v1/mock-interviews/{id}/answer` | chủ phiên | thể `AVATAR`: `{questionText, answerText, confirm, durationSec}` — `confirm=false` upsert bản nháp của lượt hiện tại, `confirm=true` chốt lượt và `currentQuestionIndex+1` |
 | GET | `/api/v1/mock-interviews/{id}` | chủ phiên | như hiện có, thêm `transcript`: mỗi lượt `{index, questionText, answerText, confirmed, durationSec, answeredAt}` |
-| POST | `/api/v1/mock-interviews/{id}/finish` | chủ phiên | như hiện có; phiên AVATAR được finish khi còn đang giữa chừng (không buộc trả lời hết) |
-| POST | `/api/v1/mock-interviews/{id}/evaluation` | chủ phiên | nộp rubric có cấu trúc một lần; hợp lệ → lưu báo cáo, BE tự tính điểm tổng |
-| GET | `/api/v1/mock-interviews/{id}/report` | chủ phiên | báo cáo đã lưu; chưa có → 404 "Chưa có báo cáo cho phiên phỏng vấn này" |
+| POST | `/api/v1/mock-interviews/{id}/finish` | chủ phiên | như hiện có; phiên AVATAR được finish khi còn đang giữa chừng (không buộc trả lời hết); **tự tạo báo cáo rubric từ transcript và trả kèm trong `report`** |
+| POST | `/api/v1/mock-interviews/{id}/evaluation` | chủ phiên | tuỳ chọn: thay báo cáo tự động bằng rubric do AI service chấm, đúng một lần; hợp lệ → lưu báo cáo, BE tự tính điểm tổng |
+| GET | `/api/v1/mock-interviews/{id}/report` | chủ phiên | báo cáo đã lưu (tự động sau finish với AVATAR); chưa có → 404 "Chưa có báo cáo cho phiên phỏng vấn này" |
 
 `StartInterviewRequest` thêm nhánh: `mode=AVATAR` đòi `jobId`, bỏ qua `topic`; `questionCount` không
 dùng cho AVATAR (số lượt do hội thoại quyết định, không cố định trước).
@@ -78,6 +78,12 @@ dùng cho AVATAR (số lượt do hội thoại quyết định, không cố đ�
   - Lượt thứ 41 của một phiên → 400 "Phiên đã đạt số lượt tối đa, hãy kết thúc" — chốt trần chống
     nhồi hội thoại, vì mỗi lượt ghi thêm một dòng `interview_answers`.
   - `evaluation` chỉ nộp khi session `COMPLETED` → ngược lại 400 "Phiên chưa kết thúc".
+  - **Báo cáo tự động:** `finish` phiên AVATAR tạo ngay một report từ các lượt đã chốt (bản nháp
+    không tính), với `rubricVersion = v1-auto-be-2026-11` và `strengths` / `improvements` suy ra từ
+    transcript. Vì vậy ứng viên không phải tự nộp rubric; `report` cũng có trong response `finish`.
+  - **Rubric AI thay báo cáo tự động đúng một lần:** `evaluation` chỉ được thay khi report hiện có
+    mang version tự động; sau khi thay, report là snapshot cố định, nộp lần hai → 400 "Báo cáo đã
+    được nộp cho phiên này". Rubric sai không được xóa hay ghi đè báo cáo đang có.
   - Rubric: đúng 5 chiều `{chuyenMon, duAn, tuDuy, truyenDat, mucKhop}`, mỗi chiều integer 0..100;
     thiếu / thừa / ngoài khoảng / không nguyên → 400 kèm danh sách chiều sai. `rubricVersion` bắt buộc
     khác rỗng, để sau này đổi thang không đọc nhầm dữ liệu cũ.
@@ -117,6 +123,9 @@ dùng cho AVATAR (số lượt do hội thoại quyết định, không cố đ�
 9. lượt thứ 41 → 400 "Phiên đã đạt số lượt tối đa", `interview_answers` vẫn 40 dòng.
 10. token INTERVIEWER và ADMIN gọi `GET /{id}/report` → 403; ứng viên khác cũng 403.
 11. hết luồng: đơn ứng tuyển và `interview_slots` của cùng candidate **không đổi** bản ghi.
+12. finish AVATAR → `interview_report` có đúng một dòng, `report` nằm trong response; finish lần hai
+    không tạo thêm dòng, không đổi report id; GET result/report trả cùng báo cáo.
+13. finish MOCK/KNOWLEDGE → không có `interview_report` (báo cáo tự động chỉ dành cho AVATAR).
 
 Số đo thật (tests run / failures / errors) ghi vào `specs/012-avatar-interview-api/quickstart-measure.md`
 như 010; chưa có số thì chưa báo "xong" (Hiến pháp II).
@@ -132,6 +141,21 @@ như 010; chưa có số thì chưa báo "xong" (Hiến pháp II).
 3. **Employer/ADMIN không đọc được báo cáo avatar** — chỉ chính chủ (Phạm vi 6).
 4. **Phiên bỏ dở: FE gọi `finish`, BE không tự chốt** (Phạm vi 7). Không có `ABANDONED`, không có
    scheduler quét session treo.
+
+## Cập nhật 2026-11-12 — báo cáo không còn phụ thuộc thao tác của ứng viên
+
+Luồng cũ bắt FE gọi `POST /{id}/evaluation` sau `finish`; nếu request đó lỗi hoặc người dùng đóng
+tab sớm thì phiên `COMPLETED` không có báo cáo. Đổi sang:
+
+1. `finish` phiên AVATAR tạo báo cáo ngay trên BE bằng `AvatarReportEvaluator` (rule tất định trên
+   transcript đã chốt), lưu `interview_report` và trả `report` trong `InterviewResultResponse`.
+2. `POST /{id}/evaluation` vẫn giữ để AI service gửi rubric chất lượng cao hơn; nó **thay thế** báo
+   cáo tự động đúng một lần. Không còn trạng thái "phiên đã xong nhưng chưa có báo cáo".
+3. `GET /{id}` trả thêm `report` (additive) để màn kết quả đọc được cả transcript lẫn báo cáo trong
+   một request; `GET /{id}/report` giữ nguyên cho client cũ.
+
+Điểm tổng vẫn do BE tính trung bình 5 chiều; `overallScore` của session AVATAR vẫn `null` để không
+kéo trung bình dashboard bằng một con số 0 giả — điểm thật nằm trong `interview_report`.
 
 ## Out of scope
 
