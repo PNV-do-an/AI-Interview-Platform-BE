@@ -37,6 +37,11 @@ public class InterviewSession {
     /** Topic for KNOWLEDGE mode (e.g. "Java Spring Boot") */
     private String topic;
 
+    /** Số câu ứng viên chọn (3..10); AVATAR dùng làm trần lượt hội thoại. */
+    @Column(nullable = false, columnDefinition = "int default 5")
+    @Builder.Default
+    private int questionCount = 5;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @Builder.Default

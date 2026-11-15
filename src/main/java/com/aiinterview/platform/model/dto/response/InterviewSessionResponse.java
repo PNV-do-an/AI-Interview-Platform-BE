@@ -21,6 +21,7 @@ public class InterviewSessionResponse {
     private String jobTitle;
     private String companyName;
     private InterviewSessionStatus status;
+    private int questionCount;
     private List<QuizQuestionResponse> questions;
     private int currentQuestionIndex;
     private int answeredCount;
@@ -29,6 +30,15 @@ public class InterviewSessionResponse {
     private LocalDateTime completedAt;
 
     public static InterviewSessionResponse from(InterviewSession s, int answeredCount) {
+        // Phiên cũ trước khi có cột questionCount mang giá trị mặc định 5; với MOCK/KNOWLEDGE
+        // số câu thật luôn bằng danh sách câu hỏi đã sinh, nên lấy theo danh sách.
+        int questionCount = s.getQuestionCount();
+        if (s.getMode() != InterviewMode.AVATAR && !s.getQuestions().isEmpty()) {
+            questionCount = s.getQuestions().size();
+        }
+        if (questionCount <= 0) {
+            questionCount = 5;
+        }
         return InterviewSessionResponse.builder()
                 .id(s.getId())
                 .mode(s.getMode())
@@ -37,6 +47,7 @@ public class InterviewSessionResponse {
                 .jobTitle(s.getJob() != null ? s.getJob().getTitle() : null)
                 .companyName(s.getJob() != null ? s.getJob().getCompanyName() : null)
                 .status(s.getStatus())
+                .questionCount(questionCount)
                 .questions(s.getQuestions().stream()
                         .map(q -> QuizQuestionResponse.builder()
                                 .question(q.getQuestion())

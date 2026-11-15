@@ -182,7 +182,12 @@ class Orchestrator:
                       "durationSec": duration_sec if duration_sec is not None
                       else (round(audio_seconds) if audio_seconds else None)}
             if ask_next and confirm:
-                result["next"] = await self._question(session, speak=speak_next)
+                if session.next_index >= session.max_turns:
+                    # Đã trả lời đúng số câu ứng viên chọn: không gọi sinh câu kế, báo done để FE chấm.
+                    result["next"] = {"sessionid": session.id, "index": session.next_index,
+                                      "questionText": None, "done": True}
+                else:
+                    result["next"] = await self._question(session, speak=speak_next)
             return result
 
     async def evaluate(self, session_id: str) -> dict:

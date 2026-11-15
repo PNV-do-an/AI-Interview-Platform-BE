@@ -63,9 +63,10 @@ public class MockInterviewServiceImpl implements MockInterviewService {
         InterviewSession session = new InterviewSession();
         session.setCandidate(candidate);
         session.setMode(request.getMode());
+        session.setQuestionCount(request.getQuestionCount());
 
         if (request.getMode() == InterviewMode.AVATAR) {
-            // Câu hỏi do AI service sinh giữa lúc hội thoại nên BE không sinh trước, questionCount bị bỏ qua.
+            // Câu hỏi do AI service sinh giữa lúc hội thoại; questionCount là trần lượt của phiên.
             session.setJob(requireJob(request.getJobId(),
                     "Vui lòng chọn tin tuyển dụng cho phiên phỏng vấn avatar"));
             session.setTopic(session.getJob().getTitle());
@@ -240,10 +241,16 @@ public class MockInterviewServiceImpl implements MockInterviewService {
      * Báo cáo do AI service gửi lên sau đó có thể thay thế bản tự động này một lần.
      */
     private void ensureAvatarReport(InterviewSession session, List<InterviewAnswer> answers) {
-        if (reportRepository.findBySession(session).isPresent()) {
+        InterviewReport existing = reportRepository.findBySession(session).orElse(null);
+        if (existing != null) {
+            // Bản tự động cũ có thể thiếu nhận xét từng câu: bù lại, không đụng báo cáo AI đã nộp.
+            if (AvatarReportEvaluator.AUTO_RUBRIC_VERSION.equals(existing.getRubricVersion())) {
+                applyAnswerFeedback(answers, avatarReportEvaluator.evaluateAnswers(answers));
+            }
             return;
         }
         AvatarReportEvaluator.Evaluation evaluation = avatarReportEvaluator.evaluate(answers);
+        applyAnswerFeedback(answers, avatarReportEvaluator.evaluateAnswers(answers));
         InterviewReport report = InterviewReport.builder()
                 .session(session)
                 .chuyenMon(evaluation.chuyenMon())
@@ -259,6 +266,65 @@ public class MockInterviewServiceImpl implements MockInterviewService {
         InterviewReport saved = reportRepository.save(report);
         log.info("Avatar auto evaluation stored: reportId={}, sessionId={}, overallScore={}",
                 saved.getId(), session.getId(), saved.getOverallScore());
+    }
+
+    /** Ghi nhận xét tất định vào từng dòng interview_answers của phiên AVATAR. */
+    private void applyAnswerFeedback(List<InterviewAnswer> answers,
+                                     Map<Integer, AvatarReportEvaluator.AnswerFeedback> byIndex) {
+        if (byIndex.isEmpty()) {
+            return;
+        }
+        List<InterviewAnswer> changed = new ArrayList<>();
+        for (InterviewAnswer answer : answers) {
+            AvatarReportEvaluator.AnswerFeedback feedback = byIndex.get(answer.getQuestionIndex());
+            if (feedback == null) {
+                continue;
+            }
+            answer.setScore(feedback.score());
+            answer.setFeedback(feedback.feedback());
+            changed.add(answer);
+        }
+        if (!changed.isEmpty()) {
+            answerRepository.saveAll(changed);
+        }
+    }
+
+    /** Áp nhận xét từng câu do AI service gửi lên; index lạ bị bỏ qua, không tạo dòng mới. */
+    private void applyRequestedAnswerFeedback(InterviewSession session,
+                                              List<InterviewEvaluationRequest.AnswerEvaluation> evaluations) {
+        if (evaluations == null || evaluations.isEmpty()) {
+            return;
+        }
+        List<InterviewAnswer> answers = answerRepository.findBySessionOrderByQuestionIndexAsc(session);
+        List<InterviewAnswer> changed = new ArrayList<>();
+        for (InterviewEvaluationRequest.AnswerEvaluation evaluation : evaluations) {
+            if (evaluation.getIndex() == null) {
+                continue;
+            }
+            InterviewAnswer answer = answers.stream()
+                    .filter(a -> a.getQuestionIndex() == evaluation.getIndex())
+                    .findFirst()
+                    .orElse(null);
+            if (answer == null) {
+                continue;
+            }
+            boolean dirty = false;
+            if (evaluation.getScore() != null) {
+                answer.setScore(evaluation.getScore());
+                dirty = true;
+            }
+            if (evaluation.getFeedback() != null && !evaluation.getFeedback().isBlank()) {
+                String feedback = evaluation.getFeedback().trim();
+                answer.setFeedback(feedback.length() > 2000 ? feedback.substring(0, 2000) : feedback);
+                dirty = true;
+            }
+            if (dirty) {
+                changed.add(answer);
+            }
+        }
+        if (!changed.isEmpty()) {
+            answerRepository.saveAll(changed);
+        }
     }
 
     @Override
@@ -287,6 +353,7 @@ public class MockInterviewServiceImpl implements MockInterviewService {
         // Validate trước khi sửa báo cáo tự động: rubric sai không được làm mất báo cáo đang có.
         int[] dims = validateRubric(request.getRubric());
         int total = (int) Math.round((dims[0] + dims[1] + dims[2] + dims[3] + dims[4]) / (double) dims.length);
+        applyRequestedAnswerFeedback(session, request.getAnswers());
 
         InterviewReport report = existing != null
                 ? existing

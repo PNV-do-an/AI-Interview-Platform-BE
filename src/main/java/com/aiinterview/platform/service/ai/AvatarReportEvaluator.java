@@ -4,8 +4,10 @@ import com.aiinterview.platform.model.entity.InterviewAnswer;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -26,6 +28,8 @@ public class AvatarReportEvaluator {
             "dự án", "project", "triển khai", "hệ thống", "sản phẩm", "team", "nhóm", "khách hàng");
     private static final List<String> REASONING_HINTS = List.of(
             "vì", "do đó", "nguyên nhân", "giải pháp", "phân tích", "đánh đổi", "trade-off", "kết quả");
+    private static final List<String> FILLER_HINTS = List.of(
+            "ừm", "ờ", "kiểu như", "thì là", "à thì");
 
     public Evaluation evaluate(List<InterviewAnswer> answers) {
         // Chỉ chấm lượt ứng viên đã chốt; bản nháp STT còn sửa được thì không tính.
@@ -65,6 +69,78 @@ public class AvatarReportEvaluator {
                 buildStrengths(count, avgWords, totalSec, detailRatio, hasProject, hasReasoning),
                 buildImprovements(count, avgWords, detailRatio, hasProject, hasReasoning),
                 AUTO_RUBRIC_VERSION);
+    }
+
+    /**
+     * Nhận xét từng câu, chỉ dựa trên chính {@code answerText} ứng viên đã nói — không bịa
+     * nội dung. Trả về map theo {@code questionIndex} để caller ghi vào
+     * {@code interview_answers.score/feedback}.
+     */
+    public Map<Integer, AnswerFeedback> evaluateAnswers(List<InterviewAnswer> answers) {
+        Map<Integer, AnswerFeedback> result = new LinkedHashMap<>();
+        for (InterviewAnswer answer : answers) {
+            // Bỏ bản nháp STT: câu chưa chốt còn sửa được nên chưa phải câu trả lời cuối.
+            if (answer.getConfirmedAt() == null) {
+                continue;
+            }
+            result.put(answer.getQuestionIndex(), evaluateAnswerText(answer.getAnswerText()));
+        }
+        return result;
+    }
+
+    private static AnswerFeedback evaluateAnswerText(String answerText) {
+        String text = answerText == null ? "" : answerText.trim();
+        int words = wordCount(text);
+        if (words == 0) {
+            return new AnswerFeedback(0,
+                    "Chưa có bản ghi câu trả lời nên chưa thể nhận xét nội dung câu này.");
+        }
+
+        String lower = text.toLowerCase(Locale.ROOT);
+        boolean hasProject = hasAny(lower, PROJECT_HINTS);
+        boolean hasReasoning = hasAny(lower, REASONING_HINTS);
+        boolean hasNumbers = text.chars().anyMatch(Character::isDigit);
+        int fillers = FILLER_HINTS.stream()
+                .mapToInt(hint -> countOccurrences(lower, hint))
+                .sum();
+        int score = clamp(35 + (Math.min(words, 120) / 120.0) * 45
+                + (hasProject ? 8 : 0) + (hasReasoning ? 6 : 0) + (hasNumbers ? 6 : 0)
+                - fillers * 3);
+
+        String excerpt = text.length() > 150 ? text.substring(0, 147) + "..." : text;
+        List<String> parts = new ArrayList<>();
+        parts.add("Bạn đã trả lời " + words + " từ: \"" + excerpt + "\".");
+        if (hasProject) {
+            parts.add("Câu trả lời có dẫn chứng từ dự án/hệ thống thực tế.");
+        }
+        if (hasReasoning) {
+            parts.add("Có nêu nguyên nhân, giải pháp hoặc đánh đổi khi trình bày.");
+        }
+        if (hasNumbers) {
+            parts.add("Có số liệu/kết quả cụ thể để tăng độ tin cậy.");
+        }
+        if (words < 25) {
+            parts.add("Gợi ý: mở rộng theo STAR — bối cảnh, việc bạn làm, hành động cụ thể và kết quả đo được.");
+        } else if (!hasProject) {
+            parts.add("Gợi ý: thêm một ví dụ dự án thật, vai trò của bạn và kết quả đạt được.");
+        } else if (!hasNumbers) {
+            parts.add("Gợi ý: bổ sung con số cụ thể (thời gian, quy mô dữ liệu, mức cải thiện) để câu trả lời thuyết phục hơn.");
+        } else if (fillers > 0) {
+            parts.add("Gợi ý: giảm từ đệm và nói thẳng vào ý chính để giữ nhịp trình bày.");
+        } else {
+            parts.add("Gợi ý: giữ cấu trúc này và bổ sung đánh đổi để thể hiện chiều sâu hơn.");
+        }
+        return new AnswerFeedback(score, String.join(" ", parts));
+    }
+
+    private static int countOccurrences(String text, String needle) {
+        int count = 0;
+        int from = 0;
+        while ((from = text.indexOf(needle, from)) >= 0) {
+            count++;
+            from += needle.length();
+        }
+        return count;
     }
 
     private static String buildStrengths(int count, double avgWords, int totalSec, double detailRatio,
@@ -136,5 +212,9 @@ public class AvatarReportEvaluator {
             return (int) Math.round(
                     (chuyenMon + duAn + tuDuy + truyenDat + mucKhop) / 5.0);
         }
+    }
+
+    /** Điểm và nhận xét của một câu, gắn theo {@code questionIndex}. */
+    public record AnswerFeedback(int score, String feedback) {
     }
 }
