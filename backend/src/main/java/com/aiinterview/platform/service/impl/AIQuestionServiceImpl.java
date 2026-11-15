@@ -2,11 +2,9 @@ package com.aiinterview.platform.service.impl;
 
 import com.aiinterview.platform.common.exception.AIServiceException;
 import com.aiinterview.platform.model.dto.response.AnswerEvaluationResponse;
-import com.aiinterview.platform.model.entity.AiQuestionCache;
 import com.aiinterview.platform.model.entity.Question;
 import com.aiinterview.platform.model.enums.DifficultyLevel;
 import com.aiinterview.platform.model.enums.QuestionType;
-import com.aiinterview.platform.model.repository.AiQuestionCacheRepository;
 import com.aiinterview.platform.service.AIQuestionService;
 import com.aiinterview.platform.service.OpenAiClient;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -29,7 +27,6 @@ import java.util.Map;
 public class AIQuestionServiceImpl implements AIQuestionService {
 
     private final OpenAiClient openAiClient;
-    private final AiQuestionCacheRepository cacheRepository;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -72,40 +69,21 @@ public class AIQuestionServiceImpl implements AIQuestionService {
                 continue;
             }
 
-            List<AiQuestionCache> cached = getFromCache(position, skill, difficulty, type, needed);
-            List<Question> cachedQuestions = new ArrayList<>();
-            for (AiQuestionCache item : cached) {
-                if (type == QuestionType.MCQ && (item.getOptions() == null || item.getOptions().isBlank())) {
-                    log.warn("Bỏ qua câu MCQ cũ thiếu options (cache key {}) — sẽ generate mới", item.getCacheKey());
-                    continue;
-                }
-                cachedQuestions.add(toQuestion(item));
-                item.setTimesUsed(item.getTimesUsed() + 1);
-                cacheRepository.save(item);
+            JsonNode root = openAiClient.chatJson(buildQuestionPrompt(position, skill, difficulty, type, needed));
+            JsonNode arr = root.path("questions");
+            if (!arr.isArray()) {
+                throw new AIServiceException("AI trả dữ liệu không hợp lệ: thiếu field 'questions'");
             }
-            questions.addAll(cachedQuestions);
-            allocated += cachedQuestions.size();
-
-            int remaining = needed - cached.size();
-            if (remaining > 0) {
-                JsonNode root = openAiClient.chatJson(buildQuestionPrompt(position, skill, difficulty, type, remaining));
-                JsonNode arr = root.path("questions");
-                if (!arr.isArray()) {
-                    throw new AIServiceException("AI trả dữ liệu không hợp lệ: thiếu field 'questions'");
+            for (JsonNode item : arr) {
+                if (allocated >= count) {
+                    break;
                 }
-                for (JsonNode item : arr) {
-                    if (allocated >= count) {
-                        break;
-                    }
-                    try {
-                        Question q = parseQuestion(item, position, skill, difficulty, type);
-                        AiQuestionCache saved = saveToCache(q, position);
-                        q.setCacheKey(saved.getCacheKey());
-                        questions.add(q);
-                        allocated++;
-                    } catch (Exception e) {
-                        log.warn("Bỏ qua câu hỏi không hợp lệ từ AI: {}", e.getMessage());
-                    }
+                try {
+                    Question q = parseQuestion(item, position, skill, difficulty, type);
+                    questions.add(q);
+                    allocated++;
+                } catch (Exception e) {
+                    log.warn("Bỏ qua câu hỏi không hợp lệ từ AI: {}", e.getMessage());
                 }
             }
         }
@@ -125,32 +103,6 @@ public class AIQuestionServiceImpl implements AIQuestionService {
     }
 
     @Override
-    public AiQuestionCache saveToCache(Question question, String position) {
-        String key = question.getCacheKey() != null
-                ? question.getCacheKey()
-                : buildCacheKey(position, question.getSkillTag(), question.getDifficulty(), question.getQuestionText());
-
-        AiQuestionCache existing = cacheRepository.findByCacheKey(key).orElse(null);
-        if (existing != null) {
-            return existing;
-        }
-
-        AiQuestionCache cache = AiQuestionCache.builder()
-                .cacheKey(key)
-                .position(position)
-                .skillTag(question.getSkillTag())
-                .difficulty(question.getDifficulty())
-                .questionType(question.getQuestionType())
-                .questionText(question.getQuestionText())
-                .options(question.getOptions())
-                .correctAnswer(question.getCorrectAnswer())
-                .explanation(question.getExplanation())
-                .timesUsed(1)
-                .build();
-        return cacheRepository.save(cache);
-    }
-
-    @Override
     public String buildCacheKey(String position, String skill, DifficultyLevel difficulty, String questionText) {
         String base = (position == null ? "" : position) + "|"
                 + (skill == null ? "" : skill) + "|"
@@ -163,30 +115,6 @@ public class AIQuestionServiceImpl implements AIQuestionService {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 not available", e);
         }
-    }
-
-    private List<AiQuestionCache> getFromCache(String position, String skill,
-                                               DifficultyLevel difficulty, QuestionType type, int limit) {
-        List<AiQuestionCache> all = cacheRepository
-                .findTop10ByPositionAndSkillTagAndDifficultyAndQuestionTypeOrderByTimesUsedDesc(
-                        position, skill, difficulty, type);
-        return all.size() > limit ? all.subList(0, limit) : all;
-    }
-
-    private Question toQuestion(AiQuestionCache cache) {
-        return Question.builder()
-                .skillTag(cache.getSkillTag())
-                .difficulty(cache.getDifficulty())
-                .questionType(cache.getQuestionType())
-                .questionText(cache.getQuestionText())
-                .options(cache.getOptions())
-                .correctAnswer(cache.getCorrectAnswer())
-                .explanation(cache.getExplanation())
-                .aiGenerated(true)
-                .source("AI")
-                .cacheKey(cache.getCacheKey())
-                .timesUsed(0)
-                .build();
     }
 
     private Question parseQuestion(JsonNode item, String position, String skill,

@@ -10,6 +10,7 @@ import com.aiinterview.platform.model.dto.response.QuestionResponse;
 import com.aiinterview.platform.model.dto.response.StudyProgramResponse;
 import com.aiinterview.platform.model.dto.response.TopicResponse;
 import com.aiinterview.platform.model.entity.Question;
+import com.aiinterview.platform.model.entity.StudyAnswer;
 import com.aiinterview.platform.model.entity.StudyProgram;
 import com.aiinterview.platform.model.entity.StudyTopic;
 import com.aiinterview.platform.model.entity.User;
@@ -20,11 +21,13 @@ import com.aiinterview.platform.model.enums.ProgramStatus;
 import com.aiinterview.platform.model.enums.ProgramType;
 import com.aiinterview.platform.model.enums.QuestionType;
 import com.aiinterview.platform.model.repository.QuestionRepository;
+import com.aiinterview.platform.model.repository.StudyAnswerRepository;
 import com.aiinterview.platform.model.repository.StudyProgramRepository;
 import com.aiinterview.platform.model.repository.StudyTopicRepository;
 import com.aiinterview.platform.model.repository.UserCvRepository;
 import com.aiinterview.platform.service.AIQuestionService;
 import com.aiinterview.platform.service.CvService;
+import com.aiinterview.platform.service.QuestionPoolService;
 import com.aiinterview.platform.service.StudyProgramService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -40,7 +43,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -52,8 +54,10 @@ public class StudyProgramServiceImpl implements StudyProgramService {
     private final StudyProgramRepository programRepository;
     private final StudyTopicRepository topicRepository;
     private final QuestionRepository questionRepository;
+    private final StudyAnswerRepository studyAnswerRepository;
     private final CvService cvService;
     private final AIQuestionService aiQuestionService;
+    private final QuestionPoolService questionPoolService;
     private final ObjectMapper objectMapper;
 
     @Value("${study.max-topics-per-program:10}")
@@ -61,6 +65,9 @@ public class StudyProgramServiceImpl implements StudyProgramService {
 
     @Value("${study.questions-per-topic:10}")
     private int questionsPerTopic;
+
+    @Value("${study.question-language:en}")
+    private String questionLanguage;
 
     @Override
     @Transactional
@@ -110,9 +117,9 @@ public class StudyProgramServiceImpl implements StudyProgramService {
                     .build();
             topic = topicRepository.save(topic);
 
-            List<Question> questions = aiQuestionService.generateQuestions(
-                    position, topicPlan.skillTag, Map.of(topicPlan.difficulty, 100),
-                    QuestionType.SHORT_ANSWER, perTopic);
+            List<Question> questions = questionPoolService.acquire(
+                    position, topicPlan.skillTag(), topicPlan.difficulty(),
+                    QuestionType.SHORT_ANSWER, questionLanguage, perTopic, user.getId());
 
             int count = 0;
             for (Question q : questions) {
@@ -172,8 +179,28 @@ public class StudyProgramServiceImpl implements StudyProgramService {
                 question.getQuestionText(), question.getCorrectAnswer(),
                 question.getExplanation(), request.getAnswer());
 
+        recordAnswer(topic, question, request.getAnswer(), evaluation);
         updateProgress(topic);
         return evaluation;
+    }
+
+    private void recordAnswer(StudyTopic topic, Question question, String answer,
+                              AnswerEvaluationResponse evaluation) {
+        StudyAnswer answerLog = studyAnswerRepository
+                .findByTopicIdAndQuestionId(topic.getId(), question.getId())
+                .orElseGet(() -> StudyAnswer.builder()
+                        .topic(topic)
+                        .question(question)
+                        .user(topic.getProgram().getUser())
+                        .poolQuestionId(question.getPoolQuestionId())
+                        .attemptCount(0)
+                        .build());
+        answerLog.setAnswer(answer);
+        answerLog.setScore(evaluation.getScore());
+        answerLog.setIsCorrect(evaluation.getIsCorrect());
+        answerLog.setAttemptCount((answerLog.getAttemptCount() == null ? 0 : answerLog.getAttemptCount()) + 1);
+        answerLog.setSubmittedAt(LocalDateTime.now());
+        studyAnswerRepository.save(answerLog);
     }
 
     private StudyProgram findOwnedProgram(Long userId, Long programId) {
@@ -192,8 +219,8 @@ public class StudyProgramServiceImpl implements StudyProgramService {
 
     private void updateProgress(StudyTopic topic) {
         int total = topic.getTotalQuestions() == null ? 0 : topic.getTotalQuestions();
-        int done = topic.getCompletedQuestions() == null ? 0 : topic.getCompletedQuestions();
-        topic.setCompletedQuestions(Math.min(done + 1, total));
+        long done = studyAnswerRepository.countByTopicId(topic.getId());
+        topic.setCompletedQuestions((int) Math.min(done, total));
         topicRepository.save(topic);
 
         StudyProgram program = topic.getProgram();

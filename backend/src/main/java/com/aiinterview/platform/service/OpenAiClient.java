@@ -74,6 +74,33 @@ public class OpenAiClient {
         throw new AIServiceException("AI trả dữ liệu không hợp lệ khi phân tích CV");
     }
 
+    /**
+     * Trich xuat ky nang ky thuat yeu cau tu JD (job description) do admin nhap.
+     * Dung cho catalog vi tri phuc vu recommendation theo CV.
+     */
+    public List<String> extractRequiredSkills(String jdText) {
+        if (jdText == null || jdText.isBlank()) {
+            throw new AIServiceException("JD text trống, không thể trích xuất kỹ năng");
+        }
+
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                JsonNode node = chatJson(buildJdSkillPrompt(jdText));
+                List<String> skills = toStringList(node.path("skills"));
+                if (skills.isEmpty()) {
+                    throw new AIServiceException("AI không trích xuất được kỹ năng nào từ JD");
+                }
+                return skills;
+            } catch (AIServiceException e) {
+                if (attempt == MAX_ATTEMPTS) {
+                    throw e;
+                }
+                log.warn("AI JD skill extraction thất bại (attempt {}). Retry...", attempt);
+            }
+        }
+        throw new AIServiceException("AI không trích xuất được kỹ năng nào từ JD");
+    }
+
     public String chat(String userPrompt) {
         return chat(userPrompt, aiConfig.getModel());
     }
@@ -457,6 +484,26 @@ public class OpenAiClient {
             text = text.substring(firstBrace, lastBrace + 1);
         }
         return text.trim();
+    }
+
+    private String buildJdSkillPrompt(String jdText) {
+        return """
+                Extract the technical skills required by the following job description (JD).
+
+                JD Content:
+                %s
+
+                Return a JSON object with exactly one field:
+                {
+                  "skills": ["Java", "Spring Boot", "MySQL", "REST API"]
+                }
+
+                Rules:
+                - Only hard/technical skills (languages, frameworks, databases, tools, platforms).
+                - No soft skills, no responsibilities, no years of experience.
+                - Use short canonical names, e.g. "Spring Boot", "PostgreSQL", "AWS", "CI/CD".
+                - At most 20 items, no duplicates.
+                """.replace("%s", jdText);
     }
 
     private String buildCvAnalysisPrompt(String cvText) {
