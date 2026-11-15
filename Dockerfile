@@ -13,7 +13,6 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
 # Copy Python dependencies và cài đặt
 COPY requirements-ai.txt .
 RUN pip install --no-cache-dir -r requirements-ai.txt
@@ -27,6 +26,7 @@ COPY vendored/ ./vendored/
 COPY app/ ./app/
 COPY scripts/ ./scripts/
 COPY config/ ./config/
+RUN python -m py_compile run_ai_server.py || true
 COPY run_ai_server.py .
 
 # Cài thêm deps của LiveTalking
