@@ -3,22 +3,17 @@ package com.aiinterview.platform.service.impl;
 import com.aiinterview.platform.common.exception.AIServiceException;
 import com.aiinterview.platform.common.exception.BadRequestException;
 import com.aiinterview.platform.common.exception.ResourceNotFoundException;
-import com.aiinterview.platform.model.dto.request.CvAnalyzeRequest;
-import com.aiinterview.platform.model.dto.response.CvAnalysisResponse;
 import com.aiinterview.platform.model.dto.response.CvParseResponse;
 import com.aiinterview.platform.model.dto.response.SkillResponse;
-import com.aiinterview.platform.model.entity.CvDocument;
 import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.entity.UserCv;
 import com.aiinterview.platform.model.entity.UserSkill;
 import com.aiinterview.platform.model.enums.ProficiencyLevel;
-import com.aiinterview.platform.model.repository.CvDocumentRepository;
 import com.aiinterview.platform.model.repository.UserCvRepository;
 import com.aiinterview.platform.model.repository.UserSkillRepository;
 import com.aiinterview.platform.service.CvService;
 import com.aiinterview.platform.service.OpenAiClient;
 import com.aiinterview.platform.service.PositionRecommendationService;
-import com.aiinterview.platform.service.ai.CvAiEngine;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -50,8 +45,6 @@ public class CvServiceImpl implements CvService {
     private static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
     private static final int RECOMMENDATION_LIMIT = 5;
 
-    private final CvDocumentRepository cvDocumentRepository;
-    private final CvAiEngine cvAiEngine;
     private final UserCvRepository userCvRepository;
     private final UserSkillRepository userSkillRepository;
     private final OpenAiClient openAiClient;
@@ -60,35 +53,6 @@ public class CvServiceImpl implements CvService {
 
     @Value("${storage.cv-upload-dir:./uploads/cv}")
     private String cvUploadDir;
-
-    // --- Legacy / Head endpoints ---
-
-    @Override
-    @Transactional
-    public CvAnalysisResponse analyze(User candidate, CvAnalyzeRequest request) {
-        CvAiEngine.CvAnalysis analysis = cvAiEngine.analyze(request.getCvText());
-
-        CvDocument doc = CvDocument.builder()
-                .candidate(candidate)
-                .fileName(request.getFileName() != null && !request.getFileName().isBlank()
-                        ? request.getFileName() : "CV-" + System.currentTimeMillis())
-                .content(request.getCvText())
-                .detectedSkills(String.join(", ", analysis.skills()))
-                .cvScore(analysis.score())
-                .build();
-        CvDocument saved = cvDocumentRepository.save(doc);
-        return CvAnalysisResponse.from(saved, analysis.suggestions());
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<CvAnalysisResponse> getMyCvs(User candidate) {
-        return cvDocumentRepository.findByCandidateOrderByCreatedAtDesc(candidate).stream()
-                .map(doc -> CvAnalysisResponse.from(doc, List.of()))
-                .toList();
-    }
-
-    // --- Interview Preparation CV parsing endpoints ---
 
     @Override
     @Transactional

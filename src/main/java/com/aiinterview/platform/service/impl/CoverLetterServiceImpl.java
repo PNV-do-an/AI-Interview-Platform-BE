@@ -5,20 +5,21 @@ import com.aiinterview.platform.common.exception.ResourceNotFoundException;
 import com.aiinterview.platform.model.dto.request.CoverLetterGenerateRequest;
 import com.aiinterview.platform.model.dto.response.CoverLetterResponse;
 import com.aiinterview.platform.model.entity.CoverLetter;
-import com.aiinterview.platform.model.entity.CvDocument;
 import com.aiinterview.platform.model.entity.JobDescription;
 import com.aiinterview.platform.model.entity.User;
+import com.aiinterview.platform.model.entity.UserCv;
+import com.aiinterview.platform.model.entity.UserSkill;
 import com.aiinterview.platform.model.repository.CandidateProfileRepository;
 import com.aiinterview.platform.model.repository.CoverLetterRepository;
-import com.aiinterview.platform.model.repository.CvDocumentRepository;
 import com.aiinterview.platform.model.repository.JobDescriptionRepository;
+import com.aiinterview.platform.model.repository.UserCvRepository;
+import com.aiinterview.platform.model.repository.UserSkillRepository;
 import com.aiinterview.platform.service.CoverLetterService;
 import com.aiinterview.platform.service.ai.CvAiEngine;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Arrays;
 import java.util.List;
 
 @Service
@@ -26,7 +27,8 @@ import java.util.List;
 public class CoverLetterServiceImpl implements CoverLetterService {
 
     private final CoverLetterRepository coverLetterRepository;
-    private final CvDocumentRepository cvRepository;
+    private final UserCvRepository userCvRepository;
+    private final UserSkillRepository userSkillRepository;
     private final JobDescriptionRepository jobRepository;
     private final CandidateProfileRepository candidateProfileRepository;
     private final CvAiEngine cvAiEngine;
@@ -39,15 +41,15 @@ public class CoverLetterServiceImpl implements CoverLetterService {
         String cvContent = null;
 
         if (request.getCvId() != null) {
-            CvDocument cv = cvRepository.findById(request.getCvId())
+            UserCv cv = userCvRepository.findById(request.getCvId())
                     .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy CV"));
-            if (!cv.getCandidate().getId().equals(candidate.getId())) {
+            if (!cv.getUser().getId().equals(candidate.getId())) {
                 throw new BadRequestException("Bạn không có quyền sử dụng CV này");
             }
-            cvContent = cv.getContent();
-            if (cv.getDetectedSkills() != null && !cv.getDetectedSkills().isBlank()) {
-                skills = Arrays.stream(cv.getDetectedSkills().split(",\\s*")).toList();
-            }
+            cvContent = cv.getRawText();
+            skills = userSkillRepository.findByCvId(cv.getId()).stream()
+                    .map(UserSkill::getSkillName)
+                    .toList();
         }
 
         JobDescription job = null;

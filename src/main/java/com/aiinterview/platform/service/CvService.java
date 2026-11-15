@@ -1,7 +1,5 @@
 package com.aiinterview.platform.service;
 
-import com.aiinterview.platform.model.dto.request.CvAnalyzeRequest;
-import com.aiinterview.platform.model.dto.response.CvAnalysisResponse;
 import com.aiinterview.platform.model.dto.response.CvParseResponse;
 import com.aiinterview.platform.model.dto.response.SkillResponse;
 import com.aiinterview.platform.model.entity.User;
@@ -10,10 +8,6 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
 
 public interface CvService {
-
-    CvAnalysisResponse analyze(User candidate, CvAnalyzeRequest request);
-
-    List<CvAnalysisResponse> getMyCvs(User candidate);
 
     CvParseResponse uploadCv(MultipartFile file, User user);
 

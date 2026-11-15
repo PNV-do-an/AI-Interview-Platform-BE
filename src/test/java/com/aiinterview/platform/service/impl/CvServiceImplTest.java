@@ -3,12 +3,10 @@ package com.aiinterview.platform.service.impl;
 import com.aiinterview.platform.model.dto.response.CvParseResponse;
 import com.aiinterview.platform.model.dto.response.PositionRecommendationResponse;
 import com.aiinterview.platform.model.entity.UserCv;
-import com.aiinterview.platform.model.repository.CvDocumentRepository;
 import com.aiinterview.platform.model.repository.UserCvRepository;
 import com.aiinterview.platform.model.repository.UserSkillRepository;
 import com.aiinterview.platform.service.OpenAiClient;
 import com.aiinterview.platform.service.PositionRecommendationService;
-import com.aiinterview.platform.service.ai.CvAiEngine;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,13 +28,11 @@ class CvServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        CvDocumentRepository cvDocumentRepository = mock(CvDocumentRepository.class);
-        CvAiEngine cvAiEngine = mock(CvAiEngine.class);
         userCvRepository = mock(UserCvRepository.class);
         UserSkillRepository userSkillRepository = mock(UserSkillRepository.class);
         OpenAiClient openAiClient = mock(OpenAiClient.class);
         positionRecommendationService = mock(PositionRecommendationService.class);
-        service = new CvServiceImpl(cvDocumentRepository, cvAiEngine, userCvRepository, userSkillRepository, openAiClient,
+        service = new CvServiceImpl(userCvRepository, userSkillRepository, openAiClient,
                 positionRecommendationService, new ObjectMapper());
     }
 
