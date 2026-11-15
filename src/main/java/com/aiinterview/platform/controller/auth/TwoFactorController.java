@@ -5,7 +5,7 @@ import com.aiinterview.platform.model.dto.request.TwoFactorCodeRequest;
 import com.aiinterview.platform.model.dto.response.TwoFactorEnableResponse;
 import com.aiinterview.platform.model.dto.response.TwoFactorSetupResponse;
 import com.aiinterview.platform.model.dto.response.TwoFactorStatusResponse;
-import com.aiinterview.platform.service.TwoFactorService;
+import com.aiinterview.platform.service.auth.TwoFactorService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;

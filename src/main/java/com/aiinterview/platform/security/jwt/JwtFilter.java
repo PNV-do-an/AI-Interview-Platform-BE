@@ -2,8 +2,8 @@ package com.aiinterview.platform.security.jwt;
 
 import com.aiinterview.platform.common.exception.InvalidAccountException;
 import com.aiinterview.platform.model.entity.User;
-import com.aiinterview.platform.service.UserService;
-import com.aiinterview.platform.service.UserSessionService;
+import com.aiinterview.platform.service.auth.UserService;
+import com.aiinterview.platform.service.auth.UserSessionService;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

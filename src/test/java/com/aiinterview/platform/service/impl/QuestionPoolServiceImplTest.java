@@ -3,7 +3,7 @@ package com.aiinterview.platform.service.impl;
 import com.aiinterview.platform.model.enums.DifficultyLevel;
 import com.aiinterview.platform.model.enums.QuestionType;
 import com.aiinterview.platform.model.repository.QuestionRepository;
-import com.aiinterview.platform.service.AIQuestionService;
+import com.aiinterview.platform.service.interview.AIQuestionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;

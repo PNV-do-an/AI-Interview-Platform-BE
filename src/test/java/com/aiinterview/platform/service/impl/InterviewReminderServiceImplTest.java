@@ -7,7 +7,7 @@ import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.enums.ApplicationStatus;
 import com.aiinterview.platform.model.repository.ApplicationRepository;
 import com.aiinterview.platform.model.repository.InterviewSlotRepository;
-import com.aiinterview.platform.service.EmailService;
+import com.aiinterview.platform.service.infra.EmailService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

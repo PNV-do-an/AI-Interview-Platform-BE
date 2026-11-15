@@ -35,9 +35,17 @@ public class DataInitializer implements ApplicationRunner {
     @Value("${app.admin.default-password:Admin@12345}")
     private String defaultAdminPassword;
 
+    /** Chỉ bật ở stack local/docker (xem docker-compose.yml); production để false. */
+    @Value("${app.seed.test-accounts:false}")
+    private boolean seedTestAccounts;
+
+    @Value("${app.seed.test-password:Test@12345}")
+    private String testPassword;
+
     @Override
     public void run(ApplicationArguments args) {
         seedAdmin();
+        seedLocalAccounts();
         seedServicePackages();
     }
 
@@ -58,6 +66,39 @@ public class DataInitializer implements ApplicationRunner {
 
         userRepository.save(admin);
         log.info("=== Default admin created: {} ===", DEFAULT_ADMIN_EMAIL);
+    }
+
+    /**
+     * Tài khoản test đã xác thực sẵn, để chạy Postman mà không cần Gmail API.
+     *
+     * <p>Luồng register thật tạo user ở trạng thái {@code enabled=false} rồi gửi mail xác thực;
+     * thiếu {@code GMAIL_*} thì {@code EmailServiceImpl} ném {@code MailDeliveryException} và cả
+     * transaction rollback (client nhận 502), nên chưa cấu hình mail thì không có đường nào tạo
+     * được tài khoản {@code ROLE_USER} qua HTTP. Seed ở đây lấp đúng khoảng đó và mặc định tắt.</p>
+     */
+    private void seedLocalAccounts() {
+        if (!seedTestAccounts) {
+            return;
+        }
+        seedAccount("candidate@aiinterview.com", "Ứng viên Test", Role.ROLE_USER);
+        seedAccount("staff@aiinterview.com", "Staff Test", Role.ROLE_STAFF);
+        seedAccount("interviewer@aiinterview.com", "Interviewer Test", Role.ROLE_INTERVIEWER);
+    }
+
+    private void seedAccount(String email, String fullName, Role role) {
+        if (userRepository.existsByEmail(email)) {
+            return;
+        }
+        userRepository.save(User.builder()
+                .email(email)
+                .password(passwordEncoder.encode(testPassword))
+                .fullName(fullName)
+                .role(role)
+                // enabled=true sẵn: bỏ qua bước verify email nên đăng nhập được ngay.
+                .enabled(true)
+                .locked(false)
+                .build());
+        log.info("=== Seeded test account: {} ({}) ===", email, role);
     }
 
     private void seedServicePackages() {

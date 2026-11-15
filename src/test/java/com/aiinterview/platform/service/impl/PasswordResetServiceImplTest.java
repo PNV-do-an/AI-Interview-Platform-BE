@@ -7,7 +7,7 @@ import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.enums.Role;
 import com.aiinterview.platform.model.repository.PasswordResetAttemptRepository;
 import com.aiinterview.platform.model.repository.UserRepository;
-import com.aiinterview.platform.service.EmailService;
+import com.aiinterview.platform.service.infra.EmailService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;

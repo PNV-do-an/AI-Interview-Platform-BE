@@ -26,6 +26,12 @@ server:
   port: ${PORT:8080}
 
 app:
+  # Tài khoản test đã xác thực sẵn cho Postman. Luồng register thật cần Gmail API
+  # (thiếu GMAIL_* thì EmailServiceImpl ném lỗi và transaction rollback -> 502),
+  # nên chỉ bật ở stack local/docker, production để false.
+  seed:
+    test-accounts: ${APP_SEED_TEST_ACCOUNTS:false}
+    test-password: ${APP_SEED_TEST_PASSWORD:Test@12345}
   mail:
     # Gmail API qua HTTPS: Render free tier chặn SMTP 25/465/587, Resend test mode chỉ giao
     # thư cho chủ tài khoản (xem spec/features/registration-email.md)

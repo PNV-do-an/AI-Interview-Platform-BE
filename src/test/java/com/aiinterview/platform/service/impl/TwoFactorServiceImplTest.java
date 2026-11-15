@@ -60,7 +60,7 @@ class TwoFactorServiceImplTest {
     @Mock
     private PasswordEncoder passwordEncoder;
     @Mock
-    private com.aiinterview.platform.service.UserSessionService userSessionService;
+    private com.aiinterview.platform.service.auth.UserSessionService userSessionService;
 
     @InjectMocks
     private TwoFactorServiceImpl service;

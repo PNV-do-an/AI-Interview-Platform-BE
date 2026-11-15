@@ -1,0 +1,16 @@
+# Chỉ loại những thứ không cần cho MỘT TRONG HAI Dockerfile.
+# Không loại app/, scripts/, config/, assets/ — Dockerfile (AI service) cần chúng.
+target/
+.git/
+.gitignore
+.idea/
+.qoder/
+.specify/
+spec/
+specs/
+docs/
+vibe_images/
+uploads/
+data/
+*.ipynb
+*.md
