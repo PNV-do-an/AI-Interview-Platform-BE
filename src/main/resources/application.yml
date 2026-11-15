@@ -82,3 +82,8 @@ study:
   max-topics-per-program: 10
   questions-per-topic: 10
   auto-generate-on-cv-upload: true
+  question-language: en
+  # Question pool: chi goi AI cho phan con thieu, moi lan sinh them mot batch
+  question-pool:
+    refill-batch: 20
+    ceiling: 200

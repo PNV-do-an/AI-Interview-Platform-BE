@@ -13,6 +13,7 @@ import com.aiinterview.platform.model.repository.UserCvRepository;
 import com.aiinterview.platform.model.repository.UserSkillRepository;
 import com.aiinterview.platform.service.CvService;
 import com.aiinterview.platform.service.OpenAiClient;
+import com.aiinterview.platform.service.PositionRecommendationService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -42,10 +43,12 @@ import java.util.List;
 public class CvServiceImpl implements CvService {
 
     private static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
+    private static final int RECOMMENDATION_LIMIT = 5;
 
     private final UserCvRepository userCvRepository;
     private final UserSkillRepository userSkillRepository;
     private final OpenAiClient openAiClient;
+    private final PositionRecommendationService positionRecommendationService;
     private final ObjectMapper objectMapper;
 
     @Value("${storage.cv-upload-dir:./uploads/cv}")
@@ -84,21 +87,22 @@ public class CvServiceImpl implements CvService {
     }
 
     @Override
-    public CvParseResponse getCv(Long userId) {
+    public CvParseResponse getCv(Long userId) { // trả về CV
         return userCvRepository.findByUserId(userId)
                 .map(this::toResponse)
+                .map(response -> attachRecommendations(response, userId))
                 .orElseGet(() -> CvParseResponse.builder().build());
     }
 
     @Override
     @Transactional
-    public CvParseResponse setPosition(Long userId, String position, String level) {
+    public CvParseResponse setPosition(Long userId, String position, String level) { // set target position, level
         UserCv cv = userCvRepository.findByUserId(userId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Chưa có CV nào. Hãy upload hoặc parse CV trước khi chọn vị trí"));
         cv.setTargetPosition(position);
         cv.setTargetLevel(level);
-        return toResponse(userCvRepository.save(cv));
+        return attachRecommendations(toResponse(userCvRepository.save(cv)), userId);
     }
 
     @Override
@@ -136,7 +140,20 @@ public class CvServiceImpl implements CvService {
 
         replaceSkills(saved, parsed.getSkills());
         parsed.setCvId(saved.getId());
-        return parsed;
+        return attachRecommendations(parsed, user.getId());
+    }
+
+    /**
+     * Goi y vi tri la thong tin bo sung cho ket qua quet CV: neu tinh toan loi thi van tra CV binh thuong.
+     */
+    private CvParseResponse attachRecommendations(CvParseResponse response, Long userId) {
+        try {
+            response.setRecommendedPositions(
+                    positionRecommendationService.recommend(userId, RECOMMENDATION_LIMIT));
+        } catch (RuntimeException e) {
+            log.warn("Không tính được gợi ý vị trí cho user {}: {}", userId, e.getMessage());
+        }
+        return response;
     }
 
     private void replaceSkills(UserCv cv, List<CvParseResponse.SkillData> skills) {

@@ -33,6 +33,10 @@ public class CvParseResponse {
     @Builder.Default
     private List<String> knowledgeGaps = new ArrayList<>();
 
+    /** Vi tri phu hop, tinh tu catalog do admin quan ly (so khop so ky nang trong CV). */
+    @Builder.Default
+    private List<PositionRecommendationResponse> recommendedPositions = new ArrayList<>();
+
     private String targetPosition;
     private String targetLevel;
 
