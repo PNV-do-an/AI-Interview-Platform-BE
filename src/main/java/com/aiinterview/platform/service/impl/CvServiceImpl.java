@@ -151,11 +151,12 @@ public class CvServiceImpl implements CvService {
     }
 
     private SkillResponse toSkillResponse(UserSkill userSkill) {
-        return SkillResponse.builder()
-                .skillName(userSkill.getSkillName())
-                .proficiencyLevel(userSkill.getProficiencyLevel())
-                .yearsExperience(userSkill.getYearsExperience())
-                .build();
+        return new SkillResponse(
+                userSkill.getId(),
+                userSkill.getSkillName(),
+                userSkill.getProficiencyLevel(),
+                userSkill.getYearsExperience()
+        );
     }
 
     private CvParseResponse persistParsed(User user, String rawText, String fileName, String filePath,
