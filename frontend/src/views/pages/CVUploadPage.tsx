@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { cvService } from '../../services/cv.service';
+import cvService from '../../services/cv.service';
 import { CvParseResponse, SkillData } from '../../models/Cv.model';
 import { CVUploadZone } from '../components/CVUploadZone';
 import { SkillsMatrix } from '../components/SkillsMatrix';

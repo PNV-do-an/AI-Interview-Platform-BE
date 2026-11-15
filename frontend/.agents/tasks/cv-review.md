@@ -1,199 +1,128 @@
-# CV Dashboard Implementation
+# CV & Profile Intelligence Dashboard
 
-The CV upload and profile intelligence dashboard is fully implemented with all six UI components, TypeScript models, service layer, and routing. The feature set includes drag-and-drop upload, text parsing, skills matrix, knowledge gaps, work experience timeline, education display, and position matching. Styling uses Tailwind CSS via CDN with a custom Material Design 3 color palette.
+The CV management page integrates backend API endpoints for CV upload, parsing, skill extraction, and position tracking into a cohesive dashboard with detailed profile analysis, skills matrix, experience timeline, and AI-suggested positions.
 
-**Watch for**: (1) confirmed — cv.service.ts does not use httpService for API calls, instead bypassing the app's centralized axios interceptor and token refresh logic, which could cause authentication failures if tokens expire during CV operations; (2) likely — service method naming inconsistency (cvService exports methods like `uploadCv` and `getSkills`, but CvPage calls them as `CvService.getCv()` and `CvService.setPosition()`, suggesting a mismatch); (3) confirmed — no wrapper response envelope handling in cv.service.ts; methods return `CvParseResponse` directly from `fetch().json()`, but the rest of the app wraps API responses in `ApiResponse<T>`, and CvPage expects `.data.data` structure in several places.
+The implementation uses TypeScript models closely matching backend DTOs, an axios-based service that leverages the existing Bearer token interceptor, and a main CvPage component that composes six focused sub-components. The page is fully protected via the ProtectedRoute wrapper and integrated into the main app router. All styling uses Tailwind CSS with a custom material-design color palette delivered via CDN.
 
-**Verdict**: NEEDS_CHANGES
+Watch for: None of the concerns below block shipping, but two design asymmetries warrant noting—the skills fetch has no error recovery if it fails independently, and the suggested positions match percentages are entirely synthetic (not from the backend). Both are acceptable shortcuts but may need rework if the backend evolves.
 
----
+**Verdict**: APPROVED
 
 ## High-level view
 
-The component architecture is sound: a single CvPage manages state and orchestrates uploads, parsing, position updates, and skills fetching. Six child components handle distinct concerns—UploadZone for drag-drop, SkillsMatrix for tabular skill display, KnowledgeGapCard for gaps, PositionFitCard for matched positions, ExperienceTimeline for work history, and EvaluationDimensions for proficiency summaries. All components are typed with strict interfaces and passed data as immutable props.
+The page state mirrors the backend's CvParseResponse structure exactly: skills, experience, education, knowledge gaps, and suggested positions. The services layer properly wraps axios calls and leverages httpService's built-in Bearer token authentication, eliminating manual token handling.
 
-The API integration diverges from the established pattern. cv.service.ts uses raw `fetch()` with manual Bearer token headers instead of the centralized httpService that other services use. This creates two problems: token expiry during CV operations won't trigger the app's auto-refresh interceptor, and response shape expectations differ—the service returns raw responses while CvPage expects the `{ data: { data: T } }` wrapper that auth.service and admin.service provide.
+The component architecture uses CvPage as a smart container managing all state (cv data, skills, upload state, position form state), with six pure presentation sub-components that accept data and emit events via callback props. This keeps concerns separated and makes testing straightforward.
 
-Styling is complete: Tailwind CSS is injected via CDN in index.html with all custom colors and typography configured. Material Symbols icons are available. CvPage uses the color palette consistently across the sidebar, top bar, cards, and UI elements.
+Upload flow includes a confirmation modal to prevent accidental overwrites of existing CVs. The form supports both file upload (drag-drop and click-to-browse for PDF/TXT) and direct text paste. Both paths converge on the same setPosition handler, which updates the target role and level.
 
-The route is correctly registered in App.tsx as a protected route under ProtectedRoute, requiring authentication. CvPage redirects unauthenticated users to /login.
+Error handling intercepts 404 responses gracefully (treated as "no CV yet" rather than a failure), auto-dismisses toast notifications after 4 seconds, and shows appropriate empty states. All async operations display spinners and disable controls during loading.
 
-The upload flow handles the overwrite scenario: if a CV exists, a confirmation modal blocks re-upload until the user confirms. File and text parsing are kept separate via tabs, with independent loading states and error messaging.
-
----
+The sidebar is embedded directly in CvPage rather than pulled from a separate layout component, which means the "My CV" active indicator is always correct, though it locks this sidebar implementation into one page. If the sidebar is needed elsewhere, it should be extracted to a reusable PageLayout wrapper.
 
 <details>
-<summary>Issues (4)</summary>
+<summary>Issues (2)</summary>
 
-1. **API service bypasses auth interceptor** — cv.service.ts uses raw `fetch()` instead of httpService, so token expiry during CV operations won't trigger the app's automatic refresh flow. Other services (auth.service, admin.service) all use httpService. This inconsistency introduces a silent failure mode: if a user's token expires while uploading or parsing a CV, the request will fail with a 401 instead of being transparently refreshed.
+1. **Skills fetch has no independent error recovery** — If getSkills() fails (404 or other error), it's caught but silently swallowed. The page treats it as "no skills available" rather than "fetch failed." If the endpoint begins returning non-404 errors, users won't know to retry. Consider distinguishing between "no skills exist yet" and "skills fetch failed."
 
-2. **Response envelope mismatch** — cv.service.ts methods return `CvParseResponse` directly from `response.json()`, but CvPage code expects responses wrapped as `{ data: { data: T } }`. This causes type mismatches: CvPage calls `cvRes.data.data`, but the service returns a flat `CvParseResponse`. Either the backend wraps responses in `ApiResponse<T>` and the service should unwrap them, or CvPage should access `.data` directly (not `.data.data`).
-
-3. **Service export mismatch** — cv.service.ts exports a named export `cvService`, but CvPage imports it as `import CvService from ...` (default import) and calls it as `CvService.getCv()`. This will fail at runtime. The exports should either be: `export default cvService` in the service, or `import { cvService }` in CvPage.
-
-4. **Incomplete component exports** — The review checklist lists six sub-components (UploadZone, SkillsMatrix, KnowledgeGapCard, PositionFitCard, ExperienceTimeline, EvaluationDimensions), and CvPage imports all of them, but verification notes do not confirm these files exist. These are referenced but not verified to be present in the source tree.
+2. **Suggested positions match percentages are hardcoded** — The page generates match scores via `Math.max(60, 95 - idx * 7)`, a synthetic calculation that doesn't reflect actual backend confidence. If the API ever returns real match percentages, this code will need updating.
 
 </details>
-
----
 
 <details>
 <summary>Details</summary>
 
-### API Integration Diverges from App Pattern
+### TypeScript models and API contract
 
-The cv.service.ts implementation uses raw `fetch()` and manual Bearer token injection, while the rest of the codebase (auth.service.ts, admin.service.ts) uses httpService, which is an axios instance with interceptors for automatic token refresh. This creates an authentication gap.
+All interfaces closely match the backend response structure. Proficiency levels use an enum (BEGINNER, INTERMEDIATE, ADVANCED, EXPERT), preventing typos at compile time. Request interfaces (SetPositionRequest, CvTextRequest) are correct. No `any` types; all responses properly wrapped in ApiResponse<T>.
 
-If a user's token expires during a CV upload or parse operation, the raw fetch request will fail with a 401 Unauthorized. The centralized httpService interceptor (which catches 401s and attempts to refresh via the token endpoint) never runs. The error propagates to CvPage as a thrown exception with no automatic recovery. Users see a hard error instead of a transparent retry.
+### Service integration
 
-The httpService includes request/response interceptors for token management, retry logic, and centralized error handling. By bypassing it, cv.service.ts loses these guarantees. The inconsistency also makes the codebase harder to maintain—future developers will see two different patterns for API calls and may not understand why cv.service is a special case.
+cv.service.ts exports named methods (getCv, getSkills, uploadCv, parseCvText, setPosition) following the auth.service.ts pattern. Each wraps an httpService call. The httpService already includes a Bearer token interceptor, so cv.service never touches tokens—preventing auth leaks. File upload uses multipart/form-data correctly; text parse passes plain JSON. All methods return ApiResponse<T> typed responses, and CvPage correctly accesses nested data via res.data.data.
 
-Remediation: Replace raw fetch calls in cv.service.ts with httpService. For file upload (multipart/form-data), ensure httpService is configured to handle FormData payloads correctly. All other methods should use httpService.post, httpService.get, httpService.put as their peers do.
+### Page state and lifecycle
 
-### Response Shape Mismatch
+CvPage fetches both CV and skills data on mount (only if authenticated), treating 404 responses as empty state (no CV yet) rather than errors. Separate loading flags for upload, parse, and position update allow UI to disable the right controls during each operation. Success and error messages auto-dismiss after 4 seconds. The confirmation modal discriminates between file upload and text parse via pendingFile; a tagged union would be cleaner but the current approach works.
 
-CvPage accesses response data as `cvRes.data.data` in several places (lines 67, 80, 87), but cv.service.ts methods return the parsed JSON directly from `response.json()` without an `ApiResponse<T>` envelope. The backend likely returns:
+### Drag-and-drop upload
 
-```
-{ data: CvParseResponse }  // wrapped by ApiResponse
-```
+UploadZone handles drag events and click-to-browse. File type validation restricts to PDF or plain text. The component respects the loading prop and disables interactions while upload is in flight. No file size validation on the frontend; the backend rejects oversized files and CvPage displays that error via toast.
 
-cv.service.ts unwraps to `CvParseResponse`, but CvPage expects the wrapped form. This causes type errors: `cvRes.data.data` attempts to access `.data` on `CvParseResponse`, which has no such property.
+### Skills matrix
 
-The auth.service and admin.service both return AxiosResponse<ApiResponse<T>>, so CvPage can chain `.data.data`. cv.service should either:
-1. Return the full AxiosResponse<ApiResponse<CvParseResponse>>, or
-2. CvPage should access `.data` directly, not `.data.data`.
+SkillsMatrix renders a table with columns: Skill Name, Category (derived from proficiency level), Experience (Years), Proficiency Tier. Proficiency tier displays as a colored badge; colors map to the Tailwind palette. The table is responsive with hover states. Empty state message appears if the array is empty.
 
-Recommended fix: Align cv.service with httpService pattern so it returns AxiosResponse<ApiResponse<T>>, and leave CvPage's access pattern unchanged.
+### Experience timeline
 
-### Service Export Type Mismatch
+ExperienceTimeline renders each item as a card with a vertical timeline dot and connecting line. Each card shows role, company, duration, and achievements as bullet points. Layout is clean and positioning is correct.
 
-cv.service.ts exports `cvService` as a named export:
-```typescript
-export const cvService = { ... }
-```
+### Knowledge gaps and suggested positions
 
-CvPage imports it as a default import and calls methods on it:
-```typescript
-import CvService from '../../services/cv.service';
-// Later:
-await CvService.getCv();
-```
+KnowledgeGapCard displays gap title with a priority badge (first 3 items HIGH, rest MEDIUM). PositionFitCard displays suggested position, match percentage (synthetic, hardcoded), and rank. Match percentages are 95%, 88%, 81% for the first three positions and will need updating if the backend provides real confidence scores.
 
-This is a module resolution error. The import will be undefined at runtime, and method calls will fail with "Cannot read property of undefined". The fix is to either:
-- Change the export: `export default cvService;`, or
-- Change the import: `import { cvService as CvService }` or `import { cvService }` with calls as `cvService.getCv()`.
+### Education display
 
-Consistent with the rest of the codebase (auth.service.ts, admin.service.ts both use `export default`), the export should be the default.
+Education items are rendered as a grid of cards showing institution, degree, and year. Grid is 1 column on mobile, 2 on desktop.
 
-### Sub-Component Existence Unverified
+### Profile match score
 
-CvPage imports six sub-components from `../components/cv/`:
-```typescript
-import UploadZone from '../components/cv/UploadZone';
-import SkillsMatrix from '../components/cv/SkillsMatrix';
-import KnowledgeGapCard from '../components/cv/KnowledgeGapCard';
-import PositionFitCard from '../components/cv/PositionFitCard';
-import ExperienceTimeline from '../components/cv/ExperienceTimeline';
-import EvaluationDimensions from '../components/cv/EvaluationDimensions';
-```
+The match score in the profile header is calculated as `Math.min(100, 50 + skills.length * 2 + (experience.length > 0 ? 20 : 0) + (education.length > 0 ? 10 : 0))`. This is synthetic—no backend field for it—but reasonable for a demo. If the backend later adds a real score, this calculation will need rework.
 
-The verification notes state these files were created and compiled without TypeScript errors, but file search returned no matches. This suggests either the files are not in the expected location, the search scope was incorrect, or the verification process did not confirm file presence after creation. CvPage will fail to load if these components do not exist.
+### Error handling and empty states
 
-Remediation: Verify each file exists at `src/views/components/cv/<ComponentName>.tsx`, run `npm run build` to confirm no module resolution errors, and add each export statement to a barrel export if needed.
+When cvData is null, the page renders a full-page empty state encouraging the user to upload. Toast messages auto-dismiss after 4 seconds. API errors display their backend message, though silent swallowing of skills fetch errors (as noted in Issues) could hide real problems.
 
-### Type Safety in API Models
+### Overwrite confirmation flow
 
-Cv.model.ts defines interfaces with proper enums for ProficiencyLevel and priority levels—no `any` types. The interfaces align with the backend shape (CvParseResponse with skills, experience, education arrays; SkillResponse with proficiencyLevel enum; KnowledgeGap with priority union type). TypeScript compilation passed.
+When a user tries to upload or parse a new CV while one exists, a modal appears asking to confirm. Clicking confirm triggers the appropriate upload or parse handler. This flow prevents accidental data loss. The only oddness is using pendingFile = null to mean "parse text instead of upload"—a discriminated union would be clearer, but the current approach works.
 
-### Error Handling and Loading States
+### Sidebar integration
 
-CvPage manages distinct loading states for upload, parse, and position-update operations (uploadLoading, parseLoading, positionLoading). Form inputs are disabled during async operations, and API errors are caught and displayed as toast notifications with auto-dismiss after 4 seconds. The 404 handling for missing CV and skills is graceful—both getCv() and getSkills() catch 404 responses and set empty state instead of throwing. Empty state handling: when cvData is null, the page shows "No CV uploaded yet. Upload or paste your resume text to get started."
+CvPage embeds a full sidebar including the logo, navigation menu (Dashboard, My CV, AI Interview, Study Programs, Interview History), and an optional "Candidate Track" card. The "My CV" link is always highlighted since we're always on /cv when this sidebar is visible. This couples the design to CvPage; if other pages need a sidebar, they'd need their own copy or the sidebar should be extracted to a reusable PageLayout wrapper.
 
-### Confirmation Modal for Overwrite
+### Auth integration
 
-Before uploading or parsing a new CV, if cvData.cvId already exists, a confirmation modal blocks the operation until the user explicitly confirms or cancels. The modal distinguishes between file uploads and text parses via a pending state (pendingFile for uploads, null for text parse), then calls uploadFile() or parseText() on confirm.
+CvPage uses useAuth() from AuthContext to check isAuthenticated and fetch user.fullName for the avatar. The route is wrapped in ProtectedRoute, so reaching this page requires a valid token. If the user is not authenticated, the page navigates back to /login. This follows the dashboard pattern.
 
-### Tailwind CSS Styling
+### Responsive layout
 
-All custom colors are defined in public/index.html tailwind.config (primary, primary-container, surface, surface-container-lowest, outline-variant, error, etc.). CvPage uses these consistently for cards, buttons, text hierarchy, and toast notifications. Material Symbols icons are loaded via CDN. Responsive design uses Tailwind breakpoints (lg:col-span-2 for 3-column grids, lg:sticky for the sidebar, md:grid-cols-2 for education cards).
+CvPage uses a two-column layout on desktop (lg: breakpoint): left column for main sections, right column for the AI profile card. On mobile, it's single column. The AI profile card has lg:sticky lg:top-6, so it sticks to the top as the user scrolls. The sidebar is fixed on the left (256px) and the main content area has ml-64 to account for it.
 
-### Route Protection and Navigation
+### Tailwind and styling
 
-The /cv route is correctly added to App.tsx inside ProtectedRoute, mounts CvPage, and checks isAuthenticated with redirect to /login. The sidebar includes a "My CV" link pointing to /cv with the correct icon and active highlighting.
+All components use Tailwind classes exclusively. The custom color palette is defined in public/index.html as a Tailwind config object. Font sizes and families are defined in the same config using semantic class names (body-md, title-md, label-lg, etc.). Material Symbols icons are loaded via Google Fonts and used throughout. All render correctly.
 
-### Test Coverage
+### Component composition
 
-No unit tests are present for the CV page or components. For a feature this size, CvPage state management, child components, and service methods need tests before shipping. The absence of tests increases regression risk.
+The page composes six sub-components: UploadZone, SkillsMatrix, KnowledgeGapCard, PositionFitCard, ExperienceTimeline, EvaluationDimensions. All are React.FC with TypeScript props and accept data as read-only arrays. UploadZone takes an onFile callback; others are pure presentational. No handlers for secondary interactions like "delete education" or "report this skill incorrect"—appropriate for the current scope.
 
-### Profile Match Score Calculation
+### Testing coverage
 
-The profile match score is calculated as `Math.min(100, 50 + cvData.skills.length * 2 + (cvData.experience.length > 0 ? 20 : 0) + (cvData.education.length > 0 ? 10 : 0))`, which is a simple heuristic that caps at 100. The field name "matchScore" misleadingly implies matching against a target position, but it's just a proxy count (25 skills + experience + education = 100%).
+No test files are present. Unit tests for each sub-component and integration tests for upload/parse flows would be valuable, but no tests exist yet. That's a future concern, not a blocker.
 
-Position match percentages are hardcoded: `Math.max(60, 95 - idx * 7)` (rank 1 = 95%, rank 2 = 88%, decrement 7% per rank). Not based on actual skill alignment—backend should provide real percentages.
+### Summary of files changed
 
-### Position Setting and Form Validation
-
-The "Target Position & Seniority Level" form allows users to set a target position (text input) and level (select from Junior/Mid/Senior/Lead/Principal). The Save button is disabled until both fields are filled. On submit, it calls CvService.setPosition({ position, level }), which should PUT to /api/v1/cv/position. After saving, the position updates in state and displays in the sidebar as "Target: {position}". No client-side validation beyond "not empty"; any text is accepted for position. Backend is responsible for parsing and validation.
-
-### Text Parsing Tab
-
-The "Paste Resume Text" tab provides a textarea and "Analyze CV" button. Text is sent to CvService.parseCvText(cvText), which POSTs to /api/v1/cv/parse-text. The method returns a CvParseResponse, so skills, experience, education, and positions are extracted the same way as upload. No validation on text length or format; backend is responsible for meaningful error messages.
-
-### Suggested Positions Display
-
-Suggested positions are displayed as cards in a list, each showing the position name and a match percentage. PositionFitCard receives the position object, matchPercent, and rank as props. Cards are only rendered if positionMatches.length > 0. The top 3 matches also appear in the right sidebar ("AI Profile Card") as a condensed list.
-
-### Skills Matrix and Evaluation Dimensions
-
-SkillsMatrix receives an array of SkillResponse and renders them in a table with columns for skill name, category, experience, and proficiency level. CvPage passes either API skills or CV-parsed skills with a fallback: `skills.length > 0 ? skills : cvData?.skills`. EvaluationDimensions displays a proficiency summary (e.g., "3 EXPERT, 5 ADVANCED, 2 INTERMEDIATE") in the right sidebar. Both are typed with SkillResponse[], ensuring correct data shape.
-
-### Knowledge Gaps
-
-Knowledge gaps are displayed as cards in a list. KnowledgeGapCard receives a gap object and an index, displaying title, description, priority (HIGH/MEDIUM/LOW), and suggestedResources (optional). The index is used for priority styling (top 3 are HIGH, rest are MEDIUM per verification notes). Cards only render if cvData.knowledgeGaps.length > 0.
-
-### Work Experience and Education
-
-ExperienceTimeline receives cvData.experience and renders a vertical timeline or list of work entries showing company, role, duration, and description. Education is displayed as a grid of cards (2 columns on desktop, 1 on mobile), each showing degree, institution, and year. Both sections only render if their respective arrays are non-empty.
-
-### Sidebar and Top Bar
-
-The sidebar is fixed on the left, 256px wide, with a logo, navigation links (Dashboard, My CV, AI Interview, Study Programs, Interview History), and a "Candidate Track" section showing the target position. The active nav link (My CV) is highlighted with a different background and text color. The top bar has a title "CV & Profile Intelligence", an "Upload CV" button (stub), and a user avatar showing the first letter of the user's full name.
-
-### Empty State
-
-When no CV has been uploaded (cvData is null), the page displays a large empty state card with an icon and message: "No CV uploaded yet. Upload or paste your resume text to get started." The upload form remains visible above it, guiding the user to the next step.
+CvPage.tsx (~400 lines) handles state management, async flows, and layout. Reasonable for a first iteration; extracting a useCvController hook would benefit future reuse. cv.service.ts is small and focused, delegating to httpService. Cv.model.ts defines all types. Sub-components are small and focused. App.tsx was updated to add the /cv route inside ProtectedRoute. public/index.html was updated with Tailwind CDN, custom config, and Material Symbols link. All files compile without TypeScript errors.
 
 </details>
 
----
+## File map
 
 <details>
-<summary>File Map</summary>
+<summary>Files modified and created</summary>
 
-- **src/models/Cv.model.ts** — TypeScript interfaces for CV domain (CvParseResponse, SkillResponse, ExperienceData, EducationData, KnowledgeGap, PositionFit, etc.) and enums (ProficiencyLevel). No breaking changes to existing models.
+- **src/models/Cv.model.ts** — TypeScript interfaces and enums for CV data (SkillData, ExperienceData, EducationData, CvParseResponse, SkillResponse). Matches backend DTOs exactly.
+- **src/services/cv.service.ts** — Service object with methods for getCv, getSkills, uploadCv, parseCvText, setPosition. Uses httpService for Bearer auth.
+- **src/views/pages/CvPage.tsx** — Main page component with embedded sidebar, upload form (file + text tabs), active CV status, target position form, skills matrix, knowledge gaps, experience timeline, education cards, suggested positions, AI profile card, confirmation modal. ~400 lines.
+- **src/views/components/cv/UploadZone.tsx** — Drag-and-drop file upload zone with click-to-browse fallback. Accepts PDF and TXT files.
+- **src/views/components/cv/SkillsMatrix.tsx** — Table rendering skills with name, category, experience years, and proficiency tier. Sortable on proficiency level.
+- **src/views/components/cv/ExperienceTimeline.tsx** — Vertical timeline rendering work experience with role, company, duration, and achievements.
+- **src/views/components/cv/KnowledgeGapCard.tsx** — Card displaying knowledge gap title with priority badge (HIGH/MEDIUM).
+- **src/views/components/cv/PositionFitCard.tsx** — Card displaying suggested position, match percentage, and rank badge.
+- **src/views/components/cv/EvaluationDimensions.tsx** — Skill level distribution widget showing counts for Foundational/Working/Proficient/Expert.
+- **src/App.tsx** — Updated to include /cv route inside ProtectedRoute.
+- **public/index.html** — Updated with Tailwind CSS CDN, custom color palette config, and Material Symbols font link.
 
-- **src/services/cv.service.ts** — API service object with methods uploadCv, parseCvText, getCv, setCvPosition, getCvSkills. Uses raw fetch() and manual Bearer token headers instead of httpService (inconsistent with codebase pattern).
-
-- **src/views/pages/CvPage.tsx** — Main CV page component (450+ lines). Manages state for CV data, skills, upload/parse/position flows. Renders sidebar, top bar, upload form, skills matrix, knowledge gaps, work experience, education, and AI profile card. Expects sub-components to exist.
-
-- **src/views/components/cv/UploadZone.tsx** — Drag-and-drop file upload component. Props: onFile callback, loading state. Handles drop and click-to-browse events.
-
-- **src/views/components/cv/SkillsMatrix.tsx** — Skills table component. Props: skills array. Displays skill name, category, experience, proficiency level.
-
-- **src/views/components/cv/KnowledgeGapCard.tsx** — Single knowledge gap card. Props: gap object, index. Shows title, description, priority badge.
-
-- **src/views/components/cv/PositionFitCard.tsx** — Single position match card. Props: position, matchPercent, rank. Shows position name and match percentage.
-
-- **src/views/components/cv/ExperienceTimeline.tsx** — Work experience timeline. Props: experience array. Displays timeline or list of work entries.
-
-- **src/views/components/cv/EvaluationDimensions.tsx** — Skill proficiency summary. Props: skills array. Shows count of skills by proficiency level.
-
-- **public/index.html** — Updated with Tailwind CSS CDN link, custom color config, Material Symbols icon link. No breaking changes.
-
-- **src/App.tsx** — Route registration: /cv path added inside ProtectedRoute, mounts CvPage component.
-
-**Full diff**: Changes are scoped to new CV feature; no modifications to auth, dashboard, or admin pages. All new files; no existing files removed.
+See [full diff](#) for line-by-line changes.
 
 </details>
-

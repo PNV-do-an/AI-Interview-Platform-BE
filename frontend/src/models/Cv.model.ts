@@ -7,8 +7,30 @@ export enum ProficiencyLevel {
   EXPERT = 'EXPERT',
 }
 
+export interface PositionFit {
+  position: string;
+  matchPercentage: number;
+  description?: string;
+}
+
+/** Vi tri phu hop do backend tinh bang cach so khop ky nang CV voi catalog vi tri. */
+export interface PositionRecommendation {
+  positionId: number;
+  title: string;
+  slug: string;
+  level?: string | null;
+  description?: string | null;
+  requiredSkillCount: number;
+  matchedSkillCount: number;
+  matchPercentage: number;
+  matchedSkills: string[];
+  missingSkills: string[];
+}
+
 export interface SkillData {
+  id?: number;
   name: string;
+  category?: string;
   proficiency: ProficiencyLevel;
   years: number;
 }
@@ -41,6 +63,7 @@ export interface CvParseResponse {
   education: EducationData[];
   suggestedPositions: string[];
   knowledgeGaps: string[];
+  recommendedPositions?: PositionRecommendation[];
   targetPosition?: string | null;
   targetLevel?: string | null;
 }

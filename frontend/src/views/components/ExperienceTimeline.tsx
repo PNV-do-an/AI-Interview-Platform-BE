@@ -38,34 +38,25 @@ export const ExperienceTimeline: React.FC<ExperienceTimelineProps> = ({ experien
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
               <span className="font-label-lg text-label-lg text-on-surface font-bold">
-                {exp.position}
+                {exp.role}
               </span>
               <span className="font-code text-code text-on-surface-variant">
-                {exp.startDate} — {exp.endDate || 'Present'}
+                {exp.duration}
               </span>
             </div>
 
             <span className="font-body-sm text-body-sm text-secondary font-medium">
-              {exp.company} {exp.location ? `• ${exp.location}` : ''}
+              {exp.company}
             </span>
 
-            {exp.description && (
-              <p className="font-body-md text-body-md text-on-surface-variant">
-                {exp.description}
-              </p>
-            )}
-
-            {exp.technologies && exp.technologies.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {exp.technologies.map((tech, i) => (
-                  <span
-                    key={i}
-                    className="px-2 py-0.5 rounded bg-surface-container-low font-code text-[11px] text-on-surface-variant"
-                  >
-                    {tech}
-                  </span>
+            {exp.achievements && exp.achievements.length > 0 && (
+              <ul className="space-y-1 pt-1">
+                {exp.achievements.map((achievement, i) => (
+                  <li key={i} className="font-body-md text-body-md text-on-surface-variant">
+                    • {achievement}
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </div>
         ))}

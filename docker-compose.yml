@@ -2,6 +2,8 @@ services:
   # ── MySQL database ────────────────────────────────────────────────────────
   db:
     image: mysql:8.0
+    ports:
+      - "3307:3306"
     container_name: ai_interview_db
     restart: unless-stopped
     environment:
@@ -25,7 +27,7 @@ services:
   # ── Backend (Spring Boot) ─────────────────────────────────────────────────
   backend:
     build:
-      context: ./backend
+      context: . /backend
       dockerfile: Dockerfile
     container_name: ai_interview_backend
     restart: unless-stopped

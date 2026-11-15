@@ -10,6 +10,16 @@ import PositionFitCard from '../components/cv/PositionFitCard';
 import ExperienceTimeline from '../components/cv/ExperienceTimeline';
 import EvaluationDimensions from '../components/cv/EvaluationDimensions';
 
+interface DisplayedPositionMatch {
+  position: string;
+  rank: number;
+  level?: string | null;
+  matchPercentage?: number;
+  requiredSkillCount?: number;
+  matchedSkills?: string[];
+  missingSkills?: string[];
+}
+
 const CvPage: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
 
@@ -196,20 +206,27 @@ const CvPage: React.FC = () => {
     return <Navigate to="/login" replace />;
   }
 
-  // Calculate profile match score (simple calculation based on available data)
-  const profileMatchScore = cvData
-    ? Math.min(100, 50 + cvData.skills.length * 2 + (cvData.experience.length > 0 ? 20 : 0) + (cvData.education.length > 0 ? 10 : 0))
-    : 0;
-
   // Get displayed skills: prefer API skills, fall back to CV data skills
   const displayedSkills = skills.length > 0 ? skills : cvData?.skills || [];
 
-  // Generate match percentages for positions
-  const positionMatches = cvData?.suggestedPositions.map((pos, idx) => ({
-    position: pos,
-    matchPercent: Math.max(60, 95 - idx * 7),
-    rank: idx + 1,
-  })) || [];
+  // Uu tien vi tri khop ky nang tu catalog (backend tinh san trong response quet CV).
+  // Neu catalog chua co du lieu thi fallback ve suggestedPositions do AI de xuat.
+  const recommendedPositions = cvData?.recommendedPositions || [];
+  const positionMatches: DisplayedPositionMatch[] =
+    recommendedPositions.length > 0
+      ? recommendedPositions.map((rec, idx) => ({
+          position: rec.title,
+          rank: idx + 1,
+          level: rec.level,
+          matchPercentage: rec.matchPercentage,
+          requiredSkillCount: rec.requiredSkillCount,
+          matchedSkills: rec.matchedSkills,
+          missingSkills: rec.missingSkills,
+        }))
+      : (cvData?.suggestedPositions || []).map((pos, idx) => ({
+          position: pos,
+          rank: idx + 1,
+        }));
 
   return (
     <div className="flex h-screen bg-background">
@@ -252,7 +269,7 @@ const CvPage: React.FC = () => {
                 <span>AI Interview</span>
               </a>
               <a
-                href="#"
+                href="/study"
                 className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-label-lg text-label-lg"
               >
                 <span className="material-symbols-outlined text-lg leading-none">school</span>
@@ -326,19 +343,10 @@ const CvPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Header with match score */}
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h2 className="font-headline-sm text-headline-sm text-on-surface mb-1">Profile Analysis</h2>
-                  <p className="text-body-md text-on-surface-variant">AI-powered analysis of your professional profile</p>
-                </div>
-                {cvData && (
-                  <div className="flex flex-col items-center justify-center w-32 h-32 rounded-full bg-primary-container border-4 border-primary">
-                    <span className="font-headline-sm text-headline-sm text-on-primary">{profileMatchScore.toFixed(1)}</span>
-                    <span className="text-label-sm text-on-primary">/100</span>
-                    <span className="text-label-sm text-on-primary mt-1 text-center">Match Score</span>
-                  </div>
-                )}
+              {/* Header */}
+              <div className="mb-6">
+                <h2 className="font-headline-sm text-headline-sm text-on-surface mb-1">Profile Analysis</h2>
+                <p className="text-body-md text-on-surface-variant">AI-powered analysis of your professional profile</p>
               </div>
 
               {/* Target Position form */}
@@ -456,14 +464,27 @@ const CvPage: React.FC = () => {
                     {/* Suggested Positions */}
                     {positionMatches.length > 0 && (
                       <div className="bg-surface-container-lowest rounded-lg p-6 border border-outline-variant">
-                        <h3 className="font-title-md text-title-md text-on-surface mb-4">Suggested Positions</h3>
+                        <div className="flex items-center justify-between gap-3 mb-4">
+                          <h3 className="font-title-md text-title-md text-on-surface">
+                            {recommendedPositions.length > 0 ? 'Recommended Positions' : 'Suggested Positions'}
+                          </h3>
+                          {recommendedPositions.length > 0 && (
+                            <span className="text-label-sm font-label-sm text-on-surface-variant">
+                              Matched by skills in your CV
+                            </span>
+                          )}
+                        </div>
                         <div className="space-y-3">
                           {positionMatches.map((match, idx) => (
                             <PositionFitCard
                               key={idx}
                               position={match.position}
-                              matchPercent={match.matchPercent}
                               rank={match.rank}
+                              level={match.level}
+                              matchPercentage={match.matchPercentage}
+                              requiredSkillCount={match.requiredSkillCount}
+                              matchedSkills={match.matchedSkills}
+                              missingSkills={match.missingSkills}
                             />
                           ))}
                         </div>
@@ -541,9 +562,12 @@ const CvPage: React.FC = () => {
                           {positionMatches.slice(0, 3).map((match, idx) => (
                             <div
                               key={idx}
-                              className="p-2 rounded bg-surface-container-low text-label-sm text-on-surface hover:bg-surface-container transition-colors"
+                              className="p-2 rounded bg-surface-container-low text-label-sm text-on-surface hover:bg-surface-container transition-colors flex items-center justify-between gap-2"
                             >
-                              {match.position}
+                              <span>{match.position}</span>
+                              {typeof match.matchPercentage === 'number' && (
+                                <span className="text-primary font-semibold">{match.matchPercentage}%</span>
+                              )}
                             </div>
                           ))}
                         </div>
