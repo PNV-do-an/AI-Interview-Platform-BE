@@ -34,6 +34,7 @@ public class SlotServiceImpl implements SlotService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<SlotResponse> getAvailableSlots(Long employerId) {
         User employer = userRepository.findById(employerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người phỏng vấn với id: " + employerId));

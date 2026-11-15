@@ -55,6 +55,7 @@ public class JobServiceImpl implements JobService {
     private final JobModerationRecordRepository moderationRecordRepository;
 
     @Override
+    @Transactional(readOnly = true)
     public Page<JobSummaryResponse> searchJobs(int page, int size, String search) {
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         String searchParam = (search != null && !search.isBlank()) ? search.trim() : null;
@@ -63,6 +64,7 @@ public class JobServiceImpl implements JobService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public JobDetailResponse getJobDetail(Long jobId) {
         JobDescription job = findJobOrThrow(jobId);
         if (job.getStatus() != JobStatus.OPEN && !canManage(job, null)) {
@@ -73,6 +75,7 @@ public class JobServiceImpl implements JobService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<JobSummaryResponse> getEmployerJobs(int page, int size) {
         User employer = SecurityUtils.getCurrentUser(userRepository);
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
@@ -235,6 +238,7 @@ public class JobServiceImpl implements JobService {
     // ── moderation console (spec 004) ────────────────────────────────────────
 
     @Override
+    @Transactional(readOnly = true)
     public Page<ModerationJobResponse> moderationQueue(int page, int size, JobStatus status, String search) {
         JobStatus effective = status == null ? JobStatus.PENDING_APPROVAL : status;
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
@@ -243,6 +247,7 @@ public class JobServiceImpl implements JobService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public ModerationJobDetailResponse moderationDetail(Long jobId) {
         JobDescription job = findJobOrThrow(jobId);
         List<ModerationRecordResponse> timeline = moderationRecordRepository
@@ -306,6 +311,7 @@ public class JobServiceImpl implements JobService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<JobModerationHistoryResponse> moderationHistory(int page, int size, ModerationAction decision,
                                                                 LocalDate from, LocalDate to,
                                                                 Long moderatorId, String search) {
