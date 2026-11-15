@@ -1,4 +1,4 @@
-package com.aiinterview.platform.service.impl;
+package com.aiinterview.platform.service.auth.impl;
 
 import org.junit.jupiter.api.Test;
 

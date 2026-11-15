@@ -5,6 +5,7 @@ import com.aiinterview.platform.model.dto.response.PositionRecommendationRespons
 import com.aiinterview.platform.model.entity.UserCv;
 import com.aiinterview.platform.model.repository.UserCvRepository;
 import com.aiinterview.platform.model.repository.UserSkillRepository;
+import com.aiinterview.platform.service.document.impl.CvServiceImpl;
 import com.aiinterview.platform.service.infra.OpenAiClient;
 import com.aiinterview.platform.service.job.PositionRecommendationService;
 import com.fasterxml.jackson.databind.ObjectMapper;

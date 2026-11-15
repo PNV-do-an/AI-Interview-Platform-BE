@@ -9,6 +9,7 @@ import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.enums.Role;
 import com.aiinterview.platform.model.repository.RegisterAttemptRepository;
 import com.aiinterview.platform.model.repository.UserRepository;
+import com.aiinterview.platform.service.auth.impl.RegisterInterfaceImpl;
 import com.aiinterview.platform.service.infra.EmailService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
