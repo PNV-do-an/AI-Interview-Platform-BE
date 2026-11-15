@@ -4,7 +4,7 @@ import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.enums.Role;
 import com.aiinterview.platform.model.repository.AdminAuditLogRepository;
 import com.aiinterview.platform.model.repository.UserRepository;
-import com.aiinterview.platform.service.EmailService;
+import com.aiinterview.platform.service.infra.EmailService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;

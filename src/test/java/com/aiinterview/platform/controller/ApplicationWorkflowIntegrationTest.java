@@ -9,7 +9,7 @@ import com.aiinterview.platform.model.repository.ApplicationRepository;
 import com.aiinterview.platform.model.repository.ApplicationStatusHistoryRepository;
 import com.aiinterview.platform.model.repository.JobDescriptionRepository;
 import com.aiinterview.platform.model.repository.UserRepository;
-import com.aiinterview.platform.service.EmailService;
+import com.aiinterview.platform.service.infra.EmailService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
