@@ -40,10 +40,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -421,6 +423,56 @@ class AvatarInterviewApiIntegrationTest {
         assertEquals(AvatarReportEvaluator.AUTO_RUBRIC_VERSION,
                 finished.path("report").path("rubricVersion").asText(),
                 "finish phải trả kèm báo cáo tự động của phiên avatar");
+    }
+
+    // ==================== 10. số câu chọn + nhận xét từng câu ==========
+
+    @Test
+    @DisplayName("10: questionCount là trần phiên avatar; finish tự ghi nhận xét từng câu từ transcript, AI thay được")
+    void testPerAnswerFeedbackGroundedInTranscript() throws Exception {
+        MvcResult started = call(post("/api/v1/mock-interviews",
+                "{\"mode\":\"AVATAR\",\"jobId\":" + job.getId() + ",\"questionCount\":3}"), candidate);
+        assertEquals(200, started.getResponse().getStatus(), text(started));
+        JsonNode session = read(started).path("data");
+        long id = session.path("id").asLong();
+        assertEquals(3, session.path("questionCount").asInt(), "avatar phải giữ số câu ứng viên chọn");
+
+        expect(turn(id, "Câu 0", "Em làm dự án React 3 tháng và giảm 40% thời gian tải vì dùng code splitting.", true, null),
+                200, null);
+        expect(turn(id, "Câu 1", "Em dùng Redis cache cho API, giảm 60% truy vấn database.", true, null), 200, null);
+        expect(turn(id, "Câu 2", "Em chưa có kinh nghiệm với Kubernetes.", true, null), 200, null);
+        expect(call(post("/api/v1/mock-interviews/" + id + "/finish", null), candidate), 200, null);
+
+        for (int i = 0; i < 3; i++) {
+            Integer score = jdbcTemplate.queryForObject(
+                    "select score from interview_answers where session_id = ? and question_index = ?",
+                    Integer.class, id, i);
+            assertNotNull(score, "finish phải tự chấm điểm câu " + i);
+            assertTrue(score >= 0 && score <= 100, "điểm câu phải trong 0..100, actual=" + score);
+            String feedback = jdbcTemplate.queryForObject(
+                    "select feedback from interview_answers where session_id = ? and question_index = ?",
+                    String.class, id, i);
+            assertNotNull(feedback, "finish phải tự ghi nhận xét câu " + i);
+            assertTrue(feedback.length() > 20, "nhận xét phải dựa trên câu trả lời thật, actual=" + feedback);
+        }
+        String firstFeedback = jdbcTemplate.queryForObject(
+                "select feedback from interview_answers where session_id = ? and question_index = 0",
+                String.class, id);
+        assertTrue(firstFeedback.contains("React"), "nhận xét phải trích nội dung ứng viên đã nói");
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("rubric", goodRubric());
+        body.put("rubricVersion", "2026-10-v2");
+        body.put("answers", List.of(Map.of(
+                "index", 0, "score", 42, "feedback", "AI nhận xét lại câu 0.")));
+        expect(call(post("/api/v1/mock-interviews/" + id + "/evaluation",
+                objectMapper.writeValueAsString(body)), candidate), 200, null);
+        assertEquals(42, jdbcTemplate.queryForObject(
+                "select score from interview_answers where session_id = ? and question_index = 0",
+                Integer.class, id));
+        assertEquals("AI nhận xét lại câu 0.", jdbcTemplate.queryForObject(
+                "select feedback from interview_answers where session_id = ? and question_index = 0",
+                String.class, id));
     }
 
     // ==================== 11. không đụng luồng có chủ ==========
