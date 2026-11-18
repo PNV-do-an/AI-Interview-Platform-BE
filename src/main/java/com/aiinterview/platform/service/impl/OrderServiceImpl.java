@@ -31,6 +31,7 @@ public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final ServicePackageRepository servicePackageRepository;
     private final EmailService emailService;
+    private final com.aiinterview.platform.service.WalletService walletService;
 
     @Override
     @Transactional
@@ -61,6 +62,8 @@ public class OrderServiceImpl implements OrderService {
         if (order.getStatus() != OrderStatus.PENDING) {
             throw new BadRequestException("Chỉ đơn hàng ở trạng thái chờ thanh toán mới có thể thanh toán");
         }
+        walletService.debitAvailable(buyer, order.getAmount(), "PACKAGE_PURCHASE", "ORDER", order.getId(),
+                "ORDER-PAY-" + order.getId(), "Thanh toan don hang " + order.getOrderCode());
         order.setStatus(OrderStatus.PAID);
         order.setPaidAt(LocalDateTime.now());
         order = orderRepository.save(order);
