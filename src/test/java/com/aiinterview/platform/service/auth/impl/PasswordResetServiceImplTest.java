@@ -1,4 +1,4 @@
-package com.aiinterview.platform.service.impl;
+package com.aiinterview.platform.service.auth.impl;
 
 import com.aiinterview.platform.common.exception.MailDeliveryException;
 import com.aiinterview.platform.model.dto.response.PasswordResetResponse;

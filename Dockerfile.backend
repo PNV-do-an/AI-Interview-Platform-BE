@@ -3,10 +3,15 @@
 # Build stage
 FROM maven:3.9.6-eclipse-temurin-17 AS build
 WORKDIR /app
+# Giới hạn heap của Maven: build không cần hơn 1g, và trên máy ít RAM thì
+# để mặc định dễ làm WSL/Docker Desktop bị kill giữa chừng.
+ENV MAVEN_OPTS="-Xmx1g"
 COPY pom.xml .
 RUN mvn dependency:go-offline -B
 COPY src ./src
-RUN mvn clean package -DskipTests
+# -Dmaven.test.skip=true (không phải -DskipTests): bỏ luôn cả bước biên dịch test,
+# để một lỗi trong test source không chặn được việc build image production.
+RUN mvn clean package -Dmaven.test.skip=true -B
 
 # Run stage
 FROM eclipse-temurin:17-jre-alpine

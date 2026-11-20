@@ -2,9 +2,14 @@ package com.aiinterview.platform.service.infra.impl;
 
 import com.aiinterview.platform.common.exception.MailDeliveryException;
 import com.aiinterview.platform.service.infra.EmailService;
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.mail.MailException;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -14,14 +19,18 @@ import org.springframework.web.client.RestClientException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Map;
+import java.util.Optional;
 
 /**
- * Gửi mail qua Gmail API (HTTPS).
+ * Gửi mail qua SMTP (Gmail App Password, 587/STARTTLS) hoặc Gmail API (HTTPS).
  *
- * SMTP bị loại vì Render free tier chặn outbound port 25/465/587 (changelog 26/09/2025),
- * còn Resend ở chế độ test chỉ giao thư cho email chủ tài khoản nên user thật không nhận được
- * link xác thực. Gmail API chạy trên 443, không cần verify domain, miễn là có OAuth refresh
- * token của chính hộp thư gửi.
+ * SMTP là đường chính vì chỉ cần App Password 16 ký tự. Gmail API giữ lại làm dự phòng:
+ * Render free tier chặn outbound port 25/465/587 (changelog 26/09/2025), còn Resend ở chế
+ * độ test chỉ giao thư cho email chủ tài khoản nên user thật không nhận được link xác thực.
+ * Gmail API chạy trên 443, không cần verify domain, miễn là có OAuth refresh token.
+ *
+ * Thứ tự chọn đường gửi trong {@link #send}: dev-log -> SMTP (nếu có MAIL_USERNAME +
+ * MAIL_PASSWORD) -> Gmail API (nếu có GMAIL_*) -> ném MailDeliveryException.
  */
 @Service
 @Slf4j
@@ -41,6 +50,16 @@ public class EmailServiceImpl implements EmailService {
     private final String tokenUri;
     private final String from;
     private final String frontendUrl;
+    /**
+     * Local/Postman: in nguyên nội dung mail ra log thay vì gửi thật, để lấy được
+     * link xác thực khi chưa có credential. Production phải để false — bật true thì mail
+     * xác thực và reset password KHÔNG được gửi thật, user thật sẽ không bao giờ nhận được.
+     */
+    private final boolean devLog;
+    private final String smtpUsername;
+    private final String smtpPassword;
+    /** Rỗng khi không cấu hình spring.mail.host — khi đó chỉ còn Gmail API. */
+    private final Optional<JavaMailSender> smtp;
 
     private volatile String accessToken;
     private volatile long accessTokenExpiresAtEpochSecond;
@@ -52,12 +71,20 @@ public class EmailServiceImpl implements EmailService {
             @Value("${app.mail.from:}") String from,
             @Value("${app.mail.token-uri:https://oauth2.googleapis.com/token}") String tokenUri,
             @Value("${app.mail.api-base-url:https://gmail.googleapis.com}") String apiBaseUrl,
-            @Value("${app.frontend-url:http://localhost:3000}") String frontendUrl) {
+            @Value("${app.frontend-url:http://localhost:3000}") String frontendUrl,
+            @Value("${app.mail.dev-log:false}") boolean devLog,
+            @Value("${spring.mail.username:}") String smtpUsername,
+            @Value("${spring.mail.password:}") String smtpPassword,
+            Optional<JavaMailSender> smtp) {
         this.clientId = clientId;
         this.clientSecret = clientSecret;
         this.refreshToken = refreshToken;
         this.from = from;
         this.frontendUrl = frontendUrl;
+        this.devLog = devLog;
+        this.smtpUsername = smtpUsername;
+        this.smtpPassword = smtpPassword;
+        this.smtp = smtp;
         this.tokenUri = tokenUri;
         this.http = RestClient.builder().baseUrl(apiBaseUrl).build();
     }
@@ -65,6 +92,23 @@ public class EmailServiceImpl implements EmailService {
     // Ném MailDeliveryException khi thiếu cấu hình hoặc Google từ chối (4xx/5xx) — mail xác thực
     // và reset password là bắt buộc, caller dựa vào exception để hoàn tác hoặc báo lỗi 502.
     private void send(String to, String subject, String text) {
+        if (devLog) {
+            // Đứng trước kiểm tra cấu hình: mục đích của chế độ này là chạy được luồng
+            // register/reset khi hoàn toàn không có GMAIL_*.
+            log.warn("[DEV MAIL] APP_MAIL_DEV_LOG=true - khong gui mail that. to={}, subject={}{}{}",
+                    to, subject, System.lineSeparator(), text);
+            return;
+        }
+        // SMTP đứng trước Gmail API: cấu hình 16 ký tự App Password là cách rẻ nhất để gửi thật.
+        if (smtpConfigured()) {
+            sendViaSmtp(to, subject, text);
+            return;
+        }
+        if (!smtpUsername.isBlank() && smtpPassword.isBlank()) {
+            // Sai cấu hình một nửa: báo đúng biến thiếu thay vì đổ lỗi cho GMAIL_*.
+            log.error("Có MAIL_USERNAME nhưng thiếu MAIL_PASSWORD (App Password 16 ký tự của Gmail)");
+            throw new MailDeliveryException(SEND_FAILED_MESSAGE);
+        }
         if (clientId.isBlank() || clientSecret.isBlank() || refreshToken.isBlank() || from.isBlank()) {
             log.error("Thiếu cấu hình Gmail API (GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET/GMAIL_REFRESH_TOKEN/MAIL_FROM)");
             throw new MailDeliveryException(SEND_FAILED_MESSAGE);
@@ -88,6 +132,38 @@ public class EmailServiceImpl implements EmailService {
         // nay thi khong bao gio tra loi duoc "mail da giao cho Google chua" khi user bao khong thay gi.
         log.info("Mail da giao cho Gmail API: to={}, messageId={}, threadId={}, labels={}",
                 to, valueOf(accepted, "id"), valueOf(accepted, "threadId"), valueOf(accepted, "labelIds"));
+    }
+
+    private boolean smtpConfigured() {
+        return smtp.isPresent() && !smtpUsername.isBlank() && !smtpPassword.isBlank();
+    }
+
+    /**
+     * Gửi qua SMTP. Dùng MIME helper UTF-8 vì subject/body tiếng Việt: SimpleMailMessage
+     * rơi về charset mặc định của JVM và có thể ra mojibake trên client.
+     *
+     * From phải trùng hộp thư đã xác thực, Gmail từ chối From khác hẳn username.
+     */
+    private void sendViaSmtp(String to, String subject, String text) {
+        String sender = from.isBlank() ? smtpUsername : from;
+        try {
+            MimeMessage message = smtp.orElseThrow().createMimeMessage();
+            MimeMessageHelper helper =
+                    new MimeMessageHelper(message, false, StandardCharsets.UTF_8.name());
+            helper.setFrom(sender);
+            helper.setTo(to);
+            helper.setSubject(subject);
+            helper.setText(text);
+            smtp.orElseThrow().send(message);
+            log.info("Mail da gui qua SMTP: to={}, from={}, subject={}", to, sender, subject);
+        } catch (MessagingException | MailException e) {
+            // Không có dòng này thì register fail 502 mà log trắng: sai App Password khác hẳn
+            // lỗi mạng, phải đọc được nguyên nhân trong log container.
+            log.error("SMTP tu choi gui mail to={} subject={} - kiem tra MAIL_USERNAME/MAIL_PASSWORD"
+                    + " (App Password 16 ky tu, khong phai mat khau dang nhap) va MAIL_PORT/MAIL_STARTTLS",
+                    to, subject, e);
+            throw new MailDeliveryException(SEND_FAILED_MESSAGE, e);
+        }
     }
 
     private static String valueOf(Map<String, Object> response, String key) {

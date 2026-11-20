@@ -1,4 +1,4 @@
-package com.aiinterview.platform.service.impl;
+package com.aiinterview.platform.service.interview.impl;
 
 import com.aiinterview.platform.model.enums.DifficultyLevel;
 import com.aiinterview.platform.model.enums.QuestionType;

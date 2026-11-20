@@ -44,7 +44,7 @@ public class RegisterInterfaceImpl implements RegisterInterface {
         String ipClient = SecurityUtils.getClientIP(request);
         LocalDateTime windowStart = LocalDateTime.now().minusMinutes(5);
 
-        // Bước 1: IP rate-limit — >= 10 lần đăng ký thất bại từ IP này trong 5 phút gần nhất
+        // Bước 1: IP rate-limit — >= 10 lần đăng ký thất bại từ IP này trong 5 phút gần nhất (tránh việc dò các tài khoản đã đăng nhập)
         long ipFailures = registerAttemptRepository.countByAddressAndTimestampAfter(ipClient, windowStart);
         if (ipFailures >= 10) {
             throw new InvalidPasswordException(

@@ -20,6 +20,23 @@ spring:
         dialect: org.hibernate.dialect.MySQLDialect
   flyway:
     enabled: false
+  # SMTP: đường gửi mail chính (Gmail App Password). Bật bằng cách đặt MAIL_USERNAME +
+  # MAIL_PASSWORD; bỏ trống thì EmailServiceImpl rơi về Gmail API. Host để rỗng chứ không
+  # mặc định smtp.gmail.com: để rỗng thì JavaMailSender không được tạo và không ai gửi nhầm
+  # bằng credential của người khác.
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${MAIL_SMTP_AUTH:true}
+      mail.smtp.starttls.enable: ${MAIL_STARTTLS:true}
+      # Timeout ngắn: Gmail SMTP treo thì register phải fail sau vài giây, không giữ
+      # request của user đến hết timeout mặc định (vô hạn với socket read).
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
 
 # Nền tảng PaaS (Render, container...) truyền cổng nghe qua env PORT; mặc định 8080
 server:
@@ -33,6 +50,10 @@ app:
     test-accounts: ${APP_SEED_TEST_ACCOUNTS:false}
     test-password: ${APP_SEED_TEST_PASSWORD:Test@12345}
   mail:
+    # Bật để chạy luồng register/reset khi chưa có GMAIL_*: EmailServiceImpl in nội dung
+    # mail (kèm link xác thực) ra log thay vì gọi Gmail API. Production phải để false,
+    # nếu không mail xác thực/reset sẽ không bao giờ được gửi thật.
+    dev-log: ${APP_MAIL_DEV_LOG:false}
     # Gmail API qua HTTPS: Render free tier chặn SMTP 25/465/587, Resend test mode chỉ giao
     # thư cho chủ tài khoản (xem spec/features/registration-email.md)
     gmail:
