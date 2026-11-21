@@ -1,7 +1,8 @@
 # Hướng dẫn test backend (AI Interview Platform)
 
 Tài liệu này ghi lại **toàn bộ** những gì đã làm cho phần unit test: cách chạy, harness tự chế, các lỗi
-đã gặp và khoảng trống còn lại. Cập nhật lần cuối: đợt bổ sung test cho **Postman folder 00 — Auth**.
+đã gặp và khoảng trống còn lại. Cập nhật lần cuối: đợt bổ sung test cho **Postman folder 00 — Auth** và
+**Batch 1 — Security core**.
 
 ## 1. Trạng thái hiện tại
 
@@ -9,7 +10,8 @@ Tài liệu này ghi lại **toàn bộ** những gì đã làm cho phần unit 
 |---|---|---|---|---|
 | Luồng nghiệp vụ chính (core flow: job / application / slot / cover letter / profile / review / bug report / order / package) | 10 | 124 | pass | Không |
 | Folder 00 — Auth | 8 | 70 | pass | Không |
-| **Tổng** | **18** | **194** | **0 fail** | Không |
+| Batch 1 — Security core (JWT / filter / session / mật khẩu / avatar) | 7 | 89 | pass | Không |
+| **Tổng** | **25** | **283** | **0 fail** | Không |
 
 Thời gian chạy: ~3–8 giây cho mỗi bộ sau khi đã có `target/classes`.
 
@@ -41,6 +43,9 @@ cd c:\Users\LENOVO\Downloads\AI-Interview-Platform-BE
 
 # Folder 00 - Auth (70 test)
 powershell -NoProfile -File scripts\testcheck\run-auth-tests.ps1
+
+# Batch 1 - Security core (89 test)
+powershell -NoProfile -File scripts\testcheck\run-security-tests.ps1
 
 # Luong nghiep vu chinh - core flow (124 test)
 powershell -NoProfile -File scripts\testcheck\run-core-tests.ps1
@@ -188,8 +193,10 @@ cấu hình. Lý do giới hạn ở §7.
    `POST /auth/sso` + `GET /auth/sso/config`, nhánh MFA của `POST /auth/login`, `POST /auth/verify-otp`,
    và toàn bộ `TwoFactorController` (`/setup`, `/enable`, `/disable`). Logic service đã có test; phần
    còn lại là ánh xạ HTTP ↔ DTO. Muốn phủ thì viết thêm case trong `AuthControllerSessionTest`.
-4. **`UserServiceImpl` / `UserSessionServiceImpl`**: chưa có test trực tiếp cho `revokeSessions`,
-   `start`, `isLive` — mới chỉ được dùng như mock ở các test trên.
+4. ~~**`UserServiceImpl` / `UserSessionServiceImpl`**: chưa có test trực tiếp cho `revokeSessions`,
+   `start`, `isLive`.~~ Đã phủ ở Batch 1 (`UserServiceImplTest` 23 test, `UserSessionServiceImplTest`
+   12 test). Phần còn thiếu của nhóm này: `SsoAuthInterfaceImpl` (chỉ test được tiền kiểm tra vì
+   `HttpClient` dựng cứng trong class, xem mục 1) và các nhánh OAuth sau lời gọi HTTP.
 5. **Phase 2 (contract/E2E theo Postman)** vẫn cần Docker (MySQL) và một bộ HTTP client.
 
 ## 8. Quy ước khi viết test mới
@@ -206,10 +213,38 @@ cấu hình. Lý do giới hạn ở §7.
   fallback cứng nên chạy offline được).
 - Mỗi test phải trả lời được: **gọi cái gì → mong đợi gì**, và khi cần thì khẳng định thêm "không được
   chạm vào đâu" bằng `verifyNoInteractions(...)`.
-- Thêm class mới vào `run-auth-tests.ps1` / `run-core-tests.ps1`; nếu cần dependency mới thì thêm vào
-  allow-list trong `build-classpath.ps1` (kèm version khớp `pom.xml`).
+- Thêm class mới vào script bộ tương ứng (`run-auth-tests.ps1`, `run-security-tests.ps1`,
+  `run-core-tests.ps1`); nếu cần dependency mới thì thêm vào allow-list trong `build-classpath.ps1`
+  (kèm version khớp `pom.xml`).
 
-## 9. Nhật ký thay đổi của đợt này
+## 9. Batch 1 — Security core (89 test)
+
+Mục tiêu: phủ lớp bảo vệ mà **mọi** endpoint dựa vào — mint/đọc JWT, filter, phiên đăng nhập, đổi mật
+khẩu và ghi avatar. Chạy bằng `run-security-tests.ps1`, không cần Docker.
+
+| Class | Test | Nội dung |
+|---|---|---|
+| `security/jwt/JwtUtilTest` | 16 | access / refresh / 2FA: mint + validate, sai secret, hết hạn, token rỗng/rác |
+| `security/jwt/JwtFilterTest` | 14 | nhánh fail-open: 12 trường hợp từ chối + nhánh hợp lệ (authentication, `setAttribute(sid)`, `touch`) |
+| `security/utils/JwtUtilsTest` | 5 | refresh mint access mới, `tv` lấy từ users chứ không từ claim, refresh token giữ nguyên |
+| `security/utils/SecurityUtilsTest` | 7 | `X-Forwarded-For` lấy hop đầu, fallback `remoteAddr`, `getCurrentUser` 3 nhánh |
+| `security/utils/UserAgentParserTest` | 11 | Edge/Opera thắng Chrome, iPhone/iPad, Android điện thoại vs máy tính bảng, UA null |
+| `service/auth/impl/UserSessionServiceImplTest` | 12 | `start` (UUID, nhãn thiết bị, IP, UA cắt 512), `isLive(null)=true`, revoked/expired, `touch` throttle 5 phút, `revoke` chỉ phiên của mình |
+| `service/auth/impl/UserServiceImplTest` | 23 | 4 quy tắc mật khẩu mới + mật khẩu hiện tại, tăng `token_version` + `revokeAll`, 5 nhánh avatar (base64, rỗng, >2MB, sai chữ ký tệp, PNG/JPEG/WEBP) |
+
+Ba điều đáng nhớ khi đọc các test này:
+
+1. `JwtFilter` **không ném lỗi**: mọi trường hợp xấu đều `filterChain.doFilter(...)` rồi `return`. Vì vậy
+   mỗi test khẳng định cả hai vế — "vẫn đi tiếp" **và** "SecurityContext rỗng".
+2. `isLive(null) = true` là chủ ý (token phát trước wave 010 không có `sid`), không phải bug.
+3. Message `" User not found with id : 9"` có **khoảng trắng ở đầu**; test giữ nguyên để phát hiện ai đó
+   sửa message mà quên đổi phía FE.
+
+Kỹ thuật riêng của batch này: TTL trong `JwtUtil` là hằng số private, nên test token hết hạn **mint token
+hết hạn tại chỗ** với `Key` đọc qua `ReflectionTestUtils.getField(JwtUtil.class, "accessKey")` — không
+phải chờ 24h, cũng không phải mock static.
+
+## 10. Nhật ký thay đổi
 
 Thêm mới (chưa commit):
 
@@ -219,14 +254,23 @@ Thêm mới (chưa commit):
 | `src/test/java/com/aiinterview/platform/controller/auth/AuthControllerSessionTest.java` | 14 test cho `refresh` / `me` / `logout` / `register` / `client-id` |
 | `src/test/java/com/aiinterview/platform/service/auth/impl/GoogleAuthInterfaceImplTest.java` | 5 test tiền kiểm tra Google OAuth |
 | `src/test/java/com/aiinterview/platform/service/auth/impl/GithubAuthInterfaceImplTest.java` | 5 test tiền kiểm tra GitHub OAuth |
+| `src/test/java/com/aiinterview/platform/security/jwt/JwtUtilTest.java` | 16 test token factory (access / refresh / 2FA) |
+| `src/test/java/com/aiinterview/platform/security/jwt/JwtFilterTest.java` | 14 test filter, toàn bộ nhánh fail-open |
+| `src/test/java/com/aiinterview/platform/security/utils/JwtUtilsTest.java` | 5 test bước refresh |
+| `src/test/java/com/aiinterview/platform/security/utils/SecurityUtilsTest.java` | 7 test IP + current user |
+| `src/test/java/com/aiinterview/platform/security/utils/UserAgentParserTest.java` | 11 test nhãn thiết bị |
+| `src/test/java/com/aiinterview/platform/service/auth/impl/UserSessionServiceImplTest.java` | 12 test vòng đời phiên đăng nhập |
+| `src/test/java/com/aiinterview/platform/service/auth/impl/UserServiceImplTest.java` | 23 test đổi mật khẩu + avatar |
 | `scripts/testcheck/build-classpath.ps1` | Dựng argfile + classpath offline |
 | `scripts/testcheck/TestRunner.java` | JUnit Platform launcher thay `mvn test` |
 | `scripts/testcheck/compile-and-run.ps1` | Engine compile + chạy |
 | `scripts/testcheck/run-auth-tests.ps1` | Bộ 70 test folder 00 |
+| `scripts/testcheck/run-security-tests.ps1` | Bộ 89 test Batch 1 |
 | `scripts/testcheck/run-core-tests.ps1` | Bộ 124 test luồng nghiệp vụ chính |
 | `docs/testing.md` | Tài liệu này |
 
-Không sửa một dòng nào trong `src/main` và không sửa `pom.xml`.
+Không sửa một dòng nào trong `src/main` và không sửa `pom.xml` (Batch 1 cũng vậy; `spring-web` đã có sẵn
+trong allow-list nên không cần thêm jar).
 
 Kế hoạch gốc của đợt test nằm ở
 `C:\Users\LENOVO\AppData\Roaming\Qoder\SharedClientCache\cache\plans\Unit_First_Test_Strategy_6edac833.md`
