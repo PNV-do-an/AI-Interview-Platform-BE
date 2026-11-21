@@ -18,6 +18,7 @@ import com.aiinterview.platform.model.entity.QuizQuestion;
 import com.aiinterview.platform.model.entity.JobDescription;
 import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.enums.InterviewMode;
+import com.aiinterview.platform.model.enums.InterviewPlan;
 import com.aiinterview.platform.model.enums.InterviewSessionStatus;
 import com.aiinterview.platform.model.repository.InterviewAnswerRepository;
 import com.aiinterview.platform.model.repository.InterviewReportRepository;
@@ -60,10 +61,26 @@ public class MockInterviewServiceImpl implements MockInterviewService {
     @Override
     @Transactional
     public InterviewSessionResponse start(User candidate, StartInterviewRequest request) {
+        InterviewPlan plan = candidate.getInterviewPlan() == null ? InterviewPlan.FREE : candidate.getInterviewPlan();
+
+        LocalDateTime startOfDay = LocalDateTime.now().withHour(0).withMinute(0).withSecond(0).withNano(0);
+        long todaySessions = sessionRepository.countByCandidateAndCreatedAtAfter(candidate, startOfDay);
+        if (todaySessions >= plan.getSessionsPerDay()) {
+            throw new BadRequestException("Bạn đã đạt giới hạn " + plan.getSessionsPerDay()
+                    + " phiên phỏng vấn mỗi ngày của gói " + plan.name());
+        }
+
+        int requestedCount = request.getQuestionCount() <= 0 ? plan.getMaxQuestionsPerSession() : request.getQuestionCount();
+        int allowedCount = Math.min(requestedCount, plan.getMaxQuestionsPerSession());
+        if (requestedCount > plan.getMaxQuestionsPerSession()) {
+            throw new BadRequestException("Gói " + plan.name() + " cho phép tối đa "
+                    + plan.getMaxQuestionsPerSession() + " câu mỗi phiên");
+        }
+
         InterviewSession session = new InterviewSession();
         session.setCandidate(candidate);
         session.setMode(request.getMode());
-        session.setQuestionCount(request.getQuestionCount());
+        session.setQuestionCount(allowedCount);
 
         if (request.getMode() == InterviewMode.AVATAR) {
             // Câu hỏi do AI service sinh giữa lúc hội thoại; questionCount là trần lượt của phiên.

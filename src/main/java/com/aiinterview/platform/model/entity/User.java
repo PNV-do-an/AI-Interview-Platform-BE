@@ -1,5 +1,6 @@
 package com.aiinterview.platform.model.entity;
 
+import com.aiinterview.platform.model.enums.InterviewPlan;
 import com.aiinterview.platform.model.enums.Role;
 import jakarta.persistence.*;
 import lombok.*;
@@ -38,6 +39,12 @@ public class User implements UserDetails {
     @Column(nullable = false)
     @Builder.Default
     private Role role = Role.ROLE_USER;
+
+    /** Goi phong van AI: FREE / NORMAL / ADVANCED. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "interview_plan")
+    @Builder.Default
+    private InterviewPlan interviewPlan = InterviewPlan.FREE;
 
     /** Account is enabled (active). false = Inactive */
     @Column(nullable = false)

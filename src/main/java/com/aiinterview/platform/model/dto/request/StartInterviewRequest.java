@@ -18,7 +18,7 @@ public class StartInterviewRequest {
     /** Topic — required when mode = KNOWLEDGE */
     private String topic;
 
-    @Min(value = 3, message = "Số câu hỏi tối thiểu là 3")
-    @Max(value = 10, message = "Số câu hỏi tối đa là 10")
+    @Min(value = 1, message = "Số câu hỏi tối thiểu là 1")
+    @Max(value = 20, message = "Số câu hỏi tối đa là 20")
     private int questionCount = 5;
 }

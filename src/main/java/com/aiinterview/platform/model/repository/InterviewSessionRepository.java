@@ -29,6 +29,8 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
 
     long countByCandidate(User candidate);
 
+    long countByCandidateAndCreatedAtAfter(User candidate, LocalDateTime since);
+
     /** Readiness of one account only — 009 FR-002. Null when that user has no scored session. */
     @Query("SELECT AVG(s.overallScore) FROM InterviewSession s "
             + "WHERE s.candidate.id = :userId AND s.overallScore IS NOT NULL AND s.completedAt IS NOT NULL")
