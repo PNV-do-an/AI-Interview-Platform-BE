@@ -1,4 +1,4 @@
-package com.aiinterview.platform.controller;
+package com.aiinterview.platform.controller.payment;
 
 import com.aiinterview.platform.common.response.ApiResponse;
 import com.aiinterview.platform.model.entity.AiCreditPackage;
@@ -6,7 +6,7 @@ import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.repository.AiCreditPackageRepository;
 import com.aiinterview.platform.model.repository.UserRepository;
 import com.aiinterview.platform.security.utils.SecurityUtils;
-import com.aiinterview.platform.service.AiCreditService;
+import com.aiinterview.platform.service.payment.AiCreditService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;

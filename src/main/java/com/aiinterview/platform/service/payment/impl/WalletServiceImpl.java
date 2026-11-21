@@ -1,4 +1,4 @@
-package com.aiinterview.platform.service.impl;
+package com.aiinterview.platform.service.payment.impl;
 
 import com.aiinterview.platform.common.exception.BadRequestException;
 import com.aiinterview.platform.model.entity.User;
@@ -7,7 +7,7 @@ import com.aiinterview.platform.model.entity.WalletTransaction;
 import com.aiinterview.platform.model.enums.WalletTxType;
 import com.aiinterview.platform.model.repository.WalletRepository;
 import com.aiinterview.platform.model.repository.WalletTransactionRepository;
-import com.aiinterview.platform.service.WalletService;
+import com.aiinterview.platform.service.payment.WalletService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

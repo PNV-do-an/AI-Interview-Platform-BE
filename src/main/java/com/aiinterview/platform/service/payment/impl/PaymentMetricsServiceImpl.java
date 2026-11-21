@@ -1,4 +1,4 @@
-package com.aiinterview.platform.service.impl;
+package com.aiinterview.platform.service.payment.impl;
 
 import com.aiinterview.platform.model.repository.EscrowBookingRepository;
 import com.aiinterview.platform.model.repository.WalletTransactionRepository;
@@ -6,7 +6,7 @@ import com.aiinterview.platform.model.repository.WithdrawalRepository;
 import com.aiinterview.platform.model.repository.AiCreditLedgerRepository;
 import com.aiinterview.platform.model.enums.WalletTxType;
 import com.aiinterview.platform.model.enums.AiCreditTxType;
-import com.aiinterview.platform.service.PaymentMetricsService;
+import com.aiinterview.platform.service.payment.PaymentMetricsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 

@@ -1,7 +1,7 @@
-package com.aiinterview.platform.controller;
+package com.aiinterview.platform.controller.payment;
 
 import com.aiinterview.platform.common.response.ApiResponse;
-import com.aiinterview.platform.service.PaymentMetricsService;
+import com.aiinterview.platform.service.payment.PaymentMetricsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;

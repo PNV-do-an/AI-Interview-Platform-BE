@@ -1,4 +1,4 @@
-package com.aiinterview.platform.service.impl;
+package com.aiinterview.platform.service.commerce.impl;
 
 import com.aiinterview.platform.common.exception.BadRequestException;
 import com.aiinterview.platform.common.exception.ResourceNotFoundException;
@@ -31,7 +31,7 @@ public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final ServicePackageRepository servicePackageRepository;
     private final EmailService emailService;
-    private final com.aiinterview.platform.service.WalletService walletService;
+    private final com.aiinterview.platform.service.payment.WalletService walletService;
 
     @Override
     @Transactional

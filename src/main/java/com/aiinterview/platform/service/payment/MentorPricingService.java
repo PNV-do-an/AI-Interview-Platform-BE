@@ -1,4 +1,4 @@
-package com.aiinterview.platform.service;
+package com.aiinterview.platform.service.payment;
 
 import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.entity.MentorPricing;

@@ -1,4 +1,4 @@
-package com.aiinterview.platform.service.impl;
+package com.aiinterview.platform.service.payment.impl;
 
 import com.aiinterview.platform.common.exception.BadRequestException;
 import com.aiinterview.platform.common.exception.ResourceNotFoundException;
@@ -10,8 +10,8 @@ import com.aiinterview.platform.model.enums.AiCreditTxType;
 import com.aiinterview.platform.model.repository.AiCreditLedgerRepository;
 import com.aiinterview.platform.model.repository.AiCreditPackageRepository;
 import com.aiinterview.platform.model.repository.AiCreditUsageRepository;
-import com.aiinterview.platform.service.AiCreditService;
-import com.aiinterview.platform.service.WalletService;
+import com.aiinterview.platform.service.payment.AiCreditService;
+import com.aiinterview.platform.service.payment.WalletService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

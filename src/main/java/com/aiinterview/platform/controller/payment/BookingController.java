@@ -1,4 +1,4 @@
-package com.aiinterview.platform.controller;
+package com.aiinterview.platform.controller.payment;
 
 import com.aiinterview.platform.common.response.ApiResponse;
 import com.aiinterview.platform.model.dto.request.BookingRequest;
@@ -6,7 +6,7 @@ import com.aiinterview.platform.model.dto.response.BookingResponse;
 import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.repository.UserRepository;
 import com.aiinterview.platform.security.utils.SecurityUtils;
-import com.aiinterview.platform.service.EscrowService;
+import com.aiinterview.platform.service.payment.EscrowService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;

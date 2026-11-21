@@ -1,4 +1,4 @@
-package com.aiinterview.platform.service.impl;
+package com.aiinterview.platform.service.payment.impl;
 
 import com.aiinterview.platform.common.exception.BadRequestException;
 import com.aiinterview.platform.common.exception.ResourceNotFoundException;
@@ -9,8 +9,8 @@ import com.aiinterview.platform.model.enums.EscrowStatus;
 import com.aiinterview.platform.model.repository.EscrowBookingRepository;
 import com.aiinterview.platform.model.repository.InterviewSlotRepository;
 import com.aiinterview.platform.model.repository.MentorPricingRepository;
-import com.aiinterview.platform.service.EscrowService;
-import com.aiinterview.platform.service.WalletService;
+import com.aiinterview.platform.service.payment.EscrowService;
+import com.aiinterview.platform.service.payment.WalletService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;

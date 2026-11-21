@@ -1,4 +1,4 @@
-package com.aiinterview.platform.service.impl;
+package com.aiinterview.platform.service.payment.impl;
 
 import com.aiinterview.platform.common.exception.BadRequestException;
 import com.aiinterview.platform.common.exception.ResourceNotFoundException;
@@ -7,8 +7,8 @@ import com.aiinterview.platform.model.entity.Wallet;
 import com.aiinterview.platform.model.entity.Withdrawal;
 import com.aiinterview.platform.model.enums.WithdrawalStatus;
 import com.aiinterview.platform.model.repository.WithdrawalRepository;
-import com.aiinterview.platform.service.WalletService;
-import com.aiinterview.platform.service.WithdrawalService;
+import com.aiinterview.platform.service.payment.WalletService;
+import com.aiinterview.platform.service.payment.WithdrawalService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

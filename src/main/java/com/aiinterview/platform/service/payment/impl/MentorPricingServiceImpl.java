@@ -1,10 +1,10 @@
-package com.aiinterview.platform.service.impl;
+package com.aiinterview.platform.service.payment.impl;
 
 import com.aiinterview.platform.common.exception.BadRequestException;
 import com.aiinterview.platform.model.entity.MentorPricing;
 import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.repository.MentorPricingRepository;
-import com.aiinterview.platform.service.MentorPricingService;
+import com.aiinterview.platform.service.payment.MentorPricingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
