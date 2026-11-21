@@ -12,6 +12,7 @@ import com.aiinterview.platform.model.enums.Role;
 import com.aiinterview.platform.model.repository.OrderRepository;
 import com.aiinterview.platform.model.repository.ServicePackageRepository;
 import com.aiinterview.platform.service.infra.EmailService;
+import com.aiinterview.platform.service.payment.WalletService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -44,6 +45,7 @@ class OrderServiceImplTest {
     private OrderRepository orderRepository;
     private ServicePackageRepository servicePackageRepository;
     private EmailService emailService;
+    private WalletService walletService;
 
     private User buyer;
     private User otherBuyer;
@@ -54,7 +56,8 @@ class OrderServiceImplTest {
         orderRepository = mock(OrderRepository.class);
         servicePackageRepository = mock(ServicePackageRepository.class);
         emailService = mock(EmailService.class);
-        service = new OrderServiceImpl(orderRepository, servicePackageRepository, emailService);
+        walletService = mock(WalletService.class);
+        service = new OrderServiceImpl(orderRepository, servicePackageRepository, emailService, walletService);
 
         buyer = user(20L, "candidate@example.com", "Candidate User", Role.ROLE_USER);
         otherBuyer = user(21L, "other@example.com", "Other Buyer", Role.ROLE_USER);
