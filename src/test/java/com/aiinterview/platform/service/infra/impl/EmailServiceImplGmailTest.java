@@ -1,6 +1,7 @@
 package com.aiinterview.platform.service.infra.impl;
 
 import com.aiinterview.platform.common.exception.MailDeliveryException;
+import com.aiinterview.platform.service.infra.impl.EmailServiceImpl;
 import com.sun.net.httpserver.HttpServer;
 import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;

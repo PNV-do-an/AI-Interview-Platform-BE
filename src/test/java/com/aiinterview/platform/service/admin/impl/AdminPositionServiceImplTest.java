@@ -7,6 +7,7 @@ import com.aiinterview.platform.model.dto.request.PositionRequest;
 import com.aiinterview.platform.model.dto.response.AdminPositionResponse;
 import com.aiinterview.platform.model.entity.PositionCatalog;
 import com.aiinterview.platform.model.repository.PositionCatalogRepository;
+import com.aiinterview.platform.service.admin.impl.AdminPositionServiceImpl;
 import com.aiinterview.platform.service.infra.OpenAiClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

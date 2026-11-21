@@ -9,6 +9,7 @@ import com.aiinterview.platform.model.entity.UserSkill;
 import com.aiinterview.platform.model.repository.PositionCatalogRepository;
 import com.aiinterview.platform.model.repository.UserCvRepository;
 import com.aiinterview.platform.model.repository.UserSkillRepository;
+import com.aiinterview.platform.service.job.impl.PositionRecommendationServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

@@ -15,6 +15,8 @@ import com.aiinterview.platform.model.repository.RecoveryCodeRepository;
 import com.aiinterview.platform.model.repository.UserRepository;
 import com.aiinterview.platform.security.jwt.JwtUtil;
 import com.aiinterview.platform.service.auth.TotpVerifier;
+import com.aiinterview.platform.service.auth.TotpVerifier;
+import com.aiinterview.platform.service.auth.impl.TwoFactorServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
