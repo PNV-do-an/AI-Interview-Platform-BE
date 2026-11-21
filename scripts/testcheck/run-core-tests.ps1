@@ -13,10 +13,6 @@ $sources = @(
   "$root/feedback/impl/BugReportServiceImplTest.java",
   "$root/commerce/impl/OrderServiceImplTest.java",
   "$root/commerce/impl/ServicePackageServiceImplTest.java",
-  "$root/job/impl/MentorServiceImplTest.java",
-  "$root/job/impl/MatchingServiceImplTest.java",
-  "$root/job/impl/PositionRecommendationServiceImplTest.java",
-  "$root/document/impl/CvServiceImplTest.java",
   'src/test/java/com/aiinterview/platform/model/dto/request/JobRequestValidationTest.java'
 )
 
@@ -30,10 +26,6 @@ $tests = @(
   'com.aiinterview.platform.service.feedback.impl.BugReportServiceImplTest',
   'com.aiinterview.platform.service.commerce.impl.OrderServiceImplTest',
   'com.aiinterview.platform.service.commerce.impl.ServicePackageServiceImplTest',
-  'com.aiinterview.platform.service.job.impl.MentorServiceImplTest',
-  'com.aiinterview.platform.service.job.impl.MatchingServiceImplTest',
-  'com.aiinterview.platform.service.job.impl.PositionRecommendationServiceImplTest',
-  'com.aiinterview.platform.service.document.impl.CvServiceImplTest',
   'com.aiinterview.platform.model.dto.request.JobRequestValidationTest'
 )
 

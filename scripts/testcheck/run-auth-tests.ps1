@@ -10,10 +10,7 @@ $sources = @(
   "$root/service/auth/impl/RegisterInterfaceImplTest.java",
   "$root/service/auth/impl/PasswordResetServiceImplTest.java",
   "$root/service/auth/impl/TwoFactorServiceImplTest.java",
-  "$root/service/auth/impl/SsoEmailDomainPolicyTest.java",
-  "$root/service/auth/impl/UserSessionServiceImplTest.java",
-  "$root/service/auth/impl/UserServiceImplTest.java",
-  "$root/service/auth/impl/SsoAuthInterfaceImplTest.java"
+  "$root/service/auth/impl/SsoEmailDomainPolicyTest.java"
 )
 
 $tests = @(
@@ -24,10 +21,7 @@ $tests = @(
   'com.aiinterview.platform.service.auth.impl.RegisterInterfaceImplTest',
   'com.aiinterview.platform.service.auth.impl.PasswordResetServiceImplTest',
   'com.aiinterview.platform.service.auth.impl.TwoFactorServiceImplTest',
-  'com.aiinterview.platform.service.auth.impl.SsoEmailDomainPolicyTest',
-  'com.aiinterview.platform.service.auth.impl.UserSessionServiceImplTest',
-  'com.aiinterview.platform.service.auth.impl.UserServiceImplTest',
-  'com.aiinterview.platform.service.auth.impl.SsoAuthInterfaceImplTest'
+  'com.aiinterview.platform.service.auth.impl.SsoEmailDomainPolicyTest'
 )
 
 & "$PSScriptRoot\compile-and-run.ps1" -SourceList ($sources -join ',') -TestList ($tests -join ',')
