@@ -1,4 +1,4 @@
-package com.aiinterview.platform.service.impl;
+package com.aiinterview.platform.service.document.impl;
 
 import com.aiinterview.platform.model.dto.response.CvParseResponse;
 import com.aiinterview.platform.model.dto.response.PositionRecommendationResponse;

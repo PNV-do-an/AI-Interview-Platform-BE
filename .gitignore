@@ -7,6 +7,8 @@ target/
 
 # Environment & secrets
 .env
+.env*
+!.env.example
 *.env.local
 
 # IDE
@@ -18,7 +20,6 @@ target/
 .DS_Store
 Thumbs.db
 .vercel
-.env*
 
 # Python / AI Service
 __pycache__/

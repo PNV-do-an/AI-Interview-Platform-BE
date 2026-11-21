@@ -1,4 +1,4 @@
-package com.aiinterview.platform.service.impl;
+package com.aiinterview.platform.service.auth.impl;
 
 import com.aiinterview.platform.common.exception.BadRequestException;
 import com.aiinterview.platform.common.exception.InvalidAccountException;
@@ -14,6 +14,7 @@ import com.aiinterview.platform.model.repository.LoginAttemptRepository;
 import com.aiinterview.platform.model.repository.RecoveryCodeRepository;
 import com.aiinterview.platform.model.repository.UserRepository;
 import com.aiinterview.platform.security.jwt.JwtUtil;
+import com.aiinterview.platform.service.auth.TotpVerifier;
 import com.aiinterview.platform.service.auth.TotpVerifier;
 import com.aiinterview.platform.service.auth.impl.TwoFactorServiceImpl;
 import org.junit.jupiter.api.BeforeEach;

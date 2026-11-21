@@ -57,12 +57,44 @@ services:
       DB_NAME: ${DB_NAME:-ai_interview_db}
       DB_USERNAME: ${DB_USERNAME:-aiinterview}
       DB_PASSWORD: ${DB_PASSWORD:-aiinterview}
-      # JwtUtil đọc thẳng System.getenv (không qua application.yml); HS256 cần >= 32 byte.
+      # JwtUtil đọc thẳng System.getenv (không qua application.yml, nên app.jwt.secret
+      # trong yml là config chết). JJWT tự chọn thuật toán theo độ dài key:
+      # >=64 byte -> HS512, 48..63 -> HS384, 32..47 -> HS256. Fallback dưới đây dài
+      # 54 ký tự nên token phát hành là HS384; đặt JWT_*_SECRET trong .env để đổi.
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-local-dev-access-secret-please-change-0123456789abcdef}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-local-dev-refresh-secret-please-change-0123456789abcdef}
       APP_ADMIN_DEFAULT_PASSWORD: ${APP_ADMIN_DEFAULT_PASSWORD:-Admin@12345}
       APP_SEED_TEST_ACCOUNTS: ${APP_SEED_TEST_ACCOUNTS:-true}
       APP_SEED_TEST_PASSWORD: ${APP_SEED_TEST_PASSWORD:-Test@12345}
+      # Mặc định false (không nuốt mail thật nếu ai đó deploy bằng file này).
+      # .env của stack local đặt true để register/reset chạy được khi chưa có GMAIL_*.
+      APP_MAIL_DEV_LOG: ${APP_MAIL_DEV_LOG:-false}
+      # SMTP Gmail App Password (587 + STARTTLS) — đường gửi mail chính. Có
+      # MAIL_USERNAME + MAIL_PASSWORD là EmailServiceImpl đi SMTP, bỏ trống mới rơi về GMAIL_*.
+      # (Trước đây compose không truyền MAIL_FROM/GMAIL_* nên đường Gmail API trong container
+      #  không bao giờ chạy được, dù .env có khai.)
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-true}
+      MAIL_STARTTLS: ${MAIL_STARTTLS:-true}
+      MAIL_FROM: ${MAIL_FROM:-}
+      GMAIL_CLIENT_ID: ${GMAIL_CLIENT_ID:-}
+      GMAIL_CLIENT_SECRET: ${GMAIL_CLIENT_SECRET:-}
+      GMAIL_REFRESH_TOKEN: ${GMAIL_REFRESH_TOKEN:-}
+      # OAuth provider: các service đọc thẳng tên biến qua @Value("${GOOGLE_CLIENT_ID:}"),
+      # nên compose BẮT BUỘC phải forward — thiếu dòng nào là container thấy rỗng và
+      # /auth/google trả 401 "chưa được cấu hình" dù .env/render.yaml đã có giá trị.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      SSO_OIDC_ISSUER: ${SSO_OIDC_ISSUER:-}
+      SSO_OIDC_BASE_URL: ${SSO_OIDC_BASE_URL:-}
+      SSO_CLIENT_ID: ${SSO_CLIENT_ID:-}
+      SSO_CLIENT_SECRET: ${SSO_CLIENT_SECRET:-}
+      SSO_ALLOWED_EMAIL_DOMAINS: ${SSO_ALLOWED_EMAIL_DOMAINS:-}
+      SSO_REDIRECT_URI: ${SSO_REDIRECT_URI:-http://localhost:3000/login}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       # known-gaps: container chạy UTC làm slot "tương lai theo giờ VN" bị từ chối.
       # java.time lấy tzdb từ JDK nên không phụ thuộc tzdata của image alpine.

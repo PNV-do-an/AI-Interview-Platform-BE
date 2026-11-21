@@ -1,4 +1,4 @@
-package com.aiinterview.platform.service.impl;
+package com.aiinterview.platform.service.job.impl;
 
 import com.aiinterview.platform.common.exception.ResourceNotFoundException;
 import com.aiinterview.platform.common.util.SkillMatcher;
