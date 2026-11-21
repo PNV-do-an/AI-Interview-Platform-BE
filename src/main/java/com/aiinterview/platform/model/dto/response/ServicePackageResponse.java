@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 @Data
@@ -29,7 +30,10 @@ public class ServicePackageResponse {
                 .price(pkg.getPrice())
                 .durationDays(pkg.getDurationDays())
                 .jobPostLimit(pkg.getJobPostLimit())
-                .features(pkg.getFeatures())
+                // Sao chép ngay trong transaction: gán thẳng pkg.getFeatures() thì DTO giữ lại
+                // PersistentList của Hibernate, Jackson đọc lúc serialize (session đã đóng) sẽ ném
+                // LazyInitializationException dù phương thức gọi đã @Transactional.
+                .features(pkg.getFeatures() == null ? new ArrayList<>() : new ArrayList<>(pkg.getFeatures()))
                 .active(pkg.getActive())
                 .createdAt(pkg.getCreatedAt())
                 .build();

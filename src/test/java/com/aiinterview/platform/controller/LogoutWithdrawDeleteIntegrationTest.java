@@ -10,7 +10,7 @@ import com.aiinterview.platform.model.repository.InterviewSessionRepository;
 import com.aiinterview.platform.model.repository.JobDescriptionRepository;
 import com.aiinterview.platform.model.repository.JobModerationRecordRepository;
 import com.aiinterview.platform.model.repository.UserRepository;
-import com.aiinterview.platform.service.EmailService;
+import com.aiinterview.platform.service.infra.EmailService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;

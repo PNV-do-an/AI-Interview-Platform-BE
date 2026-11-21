@@ -1,8 +1,8 @@
 package com.aiinterview.platform.security.jwt;
 
 import com.aiinterview.platform.model.entity.ErrorModel;
-import com.aiinterview.platform.service.UserService;
-import com.aiinterview.platform.service.UserSessionService;
+import com.aiinterview.platform.service.auth.UserService;
+import com.aiinterview.platform.service.auth.UserSessionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;

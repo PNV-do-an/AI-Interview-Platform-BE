@@ -1,62 +1,146 @@
-version: "3.8"
+# Stack chạy được ngay trên máy không có GPU: MySQL + Spring Boot backend (:8080).
+# Đây là thứ cần cho việc test API bằng Postman.
+#
+#   docker compose up -d --build        # db + backend
+#   docker compose logs -f backend      # xem log khởi động
+#   docker compose down                 # dừng (thêm -v để xoá luôn data MySQL)
+#
+# Tài khoản có sẵn sau khi seed (mật khẩu Test@12345, xem APP_SEED_TEST_PASSWORD):
+#   admin@aiinterview.com        ROLE_ADMIN       (DataInitializer, mật khẩu Admin@12345)
+#   candidate@aiinterview.com    ROLE_USER        ┐
+#   staff@aiinterview.com        ROLE_STAFF        ├ chỉ tạo khi APP_SEED_TEST_ACCOUNTS=true
+#   interviewer@aiinterview.com  ROLE_INTERVIEWER ┘
+#
+# Vì sao phải seed tài khoản test: POST /api/v1/auth/register tạo user ở trạng thái
+# enabled=false rồi gửi mail xác thực qua Gmail API. Không có GMAIL_* thì
+# EmailServiceImpl ném MailDeliveryException và @Transactional rollback -> client nhận 502,
+# nên không thể tạo tài khoản ROLE_USER qua HTTP khi chưa cấu hình mail.
+
+name: ai-interview
 
 services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: ${DB_NAME:-ai_interview_db}
+      MYSQL_USER: ${DB_USERNAME:-aiinterview}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-aiinterview}
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      # 3307 ở host để không đụng MySQL đang chạy sẵn trên máy (3306).
+      - "${DB_HOST_PORT:-3307}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        # Chờ MySQL nhận kết nối thật, không chỉ chờ container start.
+        condition: service_healthy
+    environment:
+      PORT: "8080"
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:-ai_interview_db}
+      DB_USERNAME: ${DB_USERNAME:-aiinterview}
+      DB_PASSWORD: ${DB_PASSWORD:-aiinterview}
+      # JwtUtil đọc thẳng System.getenv (không qua application.yml, nên app.jwt.secret
+      # trong yml là config chết). JJWT tự chọn thuật toán theo độ dài key:
+      # >=64 byte -> HS512, 48..63 -> HS384, 32..47 -> HS256. Fallback dưới đây dài
+      # 54 ký tự nên token phát hành là HS384; đặt JWT_*_SECRET trong .env để đổi.
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-local-dev-access-secret-please-change-0123456789abcdef}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-local-dev-refresh-secret-please-change-0123456789abcdef}
+      APP_ADMIN_DEFAULT_PASSWORD: ${APP_ADMIN_DEFAULT_PASSWORD:-Admin@12345}
+      APP_SEED_TEST_ACCOUNTS: ${APP_SEED_TEST_ACCOUNTS:-true}
+      APP_SEED_TEST_PASSWORD: ${APP_SEED_TEST_PASSWORD:-Test@12345}
+      # Mặc định false (không nuốt mail thật nếu ai đó deploy bằng file này).
+      # .env của stack local đặt true để register/reset chạy được khi chưa có GMAIL_*.
+      APP_MAIL_DEV_LOG: ${APP_MAIL_DEV_LOG:-false}
+      # SMTP Gmail App Password (587 + STARTTLS) — đường gửi mail chính. Có
+      # MAIL_USERNAME + MAIL_PASSWORD là EmailServiceImpl đi SMTP, bỏ trống mới rơi về GMAIL_*.
+      # (Trước đây compose không truyền MAIL_FROM/GMAIL_* nên đường Gmail API trong container
+      #  không bao giờ chạy được, dù .env có khai.)
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-true}
+      MAIL_STARTTLS: ${MAIL_STARTTLS:-true}
+      MAIL_FROM: ${MAIL_FROM:-}
+      GMAIL_CLIENT_ID: ${GMAIL_CLIENT_ID:-}
+      GMAIL_CLIENT_SECRET: ${GMAIL_CLIENT_SECRET:-}
+      GMAIL_REFRESH_TOKEN: ${GMAIL_REFRESH_TOKEN:-}
+      # OAuth provider: các service đọc thẳng tên biến qua @Value("${GOOGLE_CLIENT_ID:}"),
+      # nên compose BẮT BUỘC phải forward — thiếu dòng nào là container thấy rỗng và
+      # /auth/google trả 401 "chưa được cấu hình" dù .env/render.yaml đã có giá trị.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      SSO_OIDC_ISSUER: ${SSO_OIDC_ISSUER:-}
+      SSO_OIDC_BASE_URL: ${SSO_OIDC_BASE_URL:-}
+      SSO_CLIENT_ID: ${SSO_CLIENT_ID:-}
+      SSO_CLIENT_SECRET: ${SSO_CLIENT_SECRET:-}
+      SSO_ALLOWED_EMAIL_DOMAINS: ${SSO_ALLOWED_EMAIL_DOMAINS:-}
+      SSO_REDIRECT_URI: ${SSO_REDIRECT_URI:-http://localhost:3000/login}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      # known-gaps: container chạy UTC làm slot "tương lai theo giờ VN" bị từ chối.
+      # java.time lấy tzdb từ JDK nên không phụ thuộc tzdata của image alpine.
+      JAVA_TOOL_OPTIONS: "-Duser.timezone=Asia/Ho_Chi_Minh"
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/api/v1/packages || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  # ── Dưới đây KHÔNG chạy ở `docker compose up` (profile "ai"), chỉ dùng khi cần avatar. ──
+  #
+  # Bản cũ khai báo `image: doubiiu/livetalking:v1` cho engine avatar. Image đó không tồn tại
+  # trên bất kỳ registry nào (Docker Hub trả 404, upstream lipku/LiveTalking chỉ phát hành
+  # source), nên `docker compose up` luôn chết ở bước pull trước cả khi tới backend.
+  # Engine avatar vì thế chạy ngoài compose: venv + scripts/run_server.py theo README,
+  # hoặc Colab (docs/COLAB-INSTRUCTIONS.md).
+  #
+  #   docker compose --profile ai up -d --build ai-service
+  #
+  # Cần `vendored/LiveTalking/` + weights (215MB wav2lip) + GPU ~4GB, xem README mục P0.
   ai-service:
+    profiles: ["ai"]
     build: .
     ports:
       - "8020:8020"
     environment:
-      - AI_AVATAR_SERVER=http://livetalking:8010
+      - AI_AVATAR_SERVER=${AI_AVATAR_SERVER:-http://host.docker.internal:8010}
       - AI_AVATAR_ID=vn_interviewer_v1
       - AI_STT_MODEL=small
       - AI_STT_DEVICE=cpu
       - AI_STT_COMPUTE=int8
       - AI_MAX_TURNS=40
       - AI_RUBRIC_VERSION=2026-10-v1
+      - AI_ALLOWED_ORIGIN=${AI_ALLOWED_ORIGIN:-http://localhost:3000}
+      - AI_LLM_PROVIDER=${AI_LLM_PROVIDER:-template}
     volumes:
       - ./data:/app/data
       - ./assets:/app/assets
       - ./vendored/LiveTalking/models:/app/vendored/LiveTalking/models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-  livetalking:
-    image: doubiiu/livetalking:v1
-    ports:
-      - "8010:8010"
-    volumes:
-      - ./assets:/app/data/avatars
-      - ./config:/app/config
-      - ./vendored/LiveTalking/models:/app/models/wav2lip
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    ports:
-      - "8080:8080"
-    environment:
-      - DB_HOST=host.docker.internal
-      - DB_PORT=3306
-      - DB_NAME=ai_interview_db
-      - DB_USERNAME=${DB_USERNAME:-root}
-      - DB_PASSWORD=${DB_PASSWORD:-123456}
-      - GMAIL_CLIENT_ID=${GMAIL_CLIENT_ID:-}
-      - GMAIL_CLIENT_SECRET=${GMAIL_CLIENT_SECRET:-}
-      - GMAIL_REFRESH_TOKEN=${GMAIL_REFRESH_TOKEN:-}
-      - MAIL_FROM=${MAIL_FROM:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     extra_hosts:
+      # Linux (Colab/VM): cho container gọi avatar đang chạy trên host.
       - "host.docker.internal:host-gateway"
+
+volumes:
+  mysql-data:

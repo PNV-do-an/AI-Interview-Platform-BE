@@ -11,7 +11,7 @@ import com.aiinterview.platform.model.repository.ApplicationStatusHistoryReposit
 import com.aiinterview.platform.model.repository.InterviewSlotRepository;
 import com.aiinterview.platform.model.repository.JobDescriptionRepository;
 import com.aiinterview.platform.model.repository.UserRepository;
-import com.aiinterview.platform.service.EmailService;
+import com.aiinterview.platform.service.infra.EmailService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
