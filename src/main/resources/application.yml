@@ -88,6 +88,18 @@ app:
     cron: ${INTERVIEW_REMINDER_CRON:0 */15 * * * *}
     window-minutes: ${INTERVIEW_REMINDER_WINDOW_MINUTES:15}
     lead-minutes: ${INTERVIEW_REMINDER_LEAD_MINUTES:60}
+  vnpay:
+    tmn-code: ${VNPAY_TMN_CODE:}
+    hash-secret: ${VNPAY_HASH_SECRET:}
+    pay-url: ${VNPAY_PAY_URL:https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}
+    return-url: ${VNPAY_RETURN_URL:http://localhost:8080/api/v1/payment/vnpay/return}
+    ipn-url: ${VNPAY_IPN_URL:http://localhost:8080/api/v1/payment/vnpay/ipn}
+    version: ${VNPAY_VERSION:2.1.0}
+    command: ${VNPAY_COMMAND:pay}
+    order-type: ${VNPAY_ORDER_TYPE:other}
+    locale: ${VNPAY_LOCALE:vn}
+    currency: ${VNPAY_CURRENCY:VND}
+    expire-minutes: ${VNPAY_EXPIRE_MINUTES:15}
 
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
