@@ -3,7 +3,7 @@
 **Feature Branch**: `015-zalopay-payment-integration`  
 **Created**: 2026-11-22  
 **Status**: Draft  
-**Input**: User description: "Không dùng VNPay nữa, chuyển sang thanh toán bằng MoMo/ZaloPay sandbox. Implement ZaloPay Gateway v2: create → redirect → callback/query → cộng ví idempotent, không cần đăng ký tài khoản."
+**Input**: User description: "Chuyển sang thanh toán bằng MoMo/ZaloPay sandbox. Implement ZaloPay Gateway v2: create → redirect → callback/query → cộng ví idempotent, không cần đăng ký tài khoản."
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -67,7 +67,7 @@ As a user returning from ZaloPay checkout, backend verifies the redirect checksu
 - **FR-007**: All credits go through `WalletService.creditAvailable(..., idempotencyKey = appTransId)` guarded by transaction status + pessimistic lock.
 - **FR-008**: Add `ZALOPAY_TOPUP` to `WalletTxType`.
 - **FR-009**: No new SDK; use `javax.crypto.Mac` and `RestTemplateBuilder`.
-- **FR-010**: Keep existing VNPay code/config untouched (feature replaced, not removed).
+- **FR-010**: Existing VNPay code, config and spec docs were removed; ZaloPay is the only gateway integration.
 
 ### Key Entities
 - **ZalopayTransaction**: id, userId, appTransId (unique), amount, orderInfo, status (PENDING/SUCCESS/FAILED), zpTransId, channel, createdAt, updatedAt.
