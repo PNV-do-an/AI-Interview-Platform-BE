@@ -49,6 +49,9 @@ powershell -NoProfile -File scripts\testcheck\run-security-tests.ps1
 
 # Luong nghiep vu chinh - core flow (124 test)
 powershell -NoProfile -File scripts\testcheck\run-core-tests.ps1
+
+# Batch 3 - 8 class tung nam ngoai harness (40 test)
+powershell -NoProfile -File scripts\testcheck\run-extra-tests.ps1
 ```
 
 Điều kiện:
@@ -120,6 +123,7 @@ những `.class` tương ứng, không xoá phần còn lại.
 | `scripts/testcheck/run-auth-tests.ps1` | Danh sách 9 class của folder 00 (Auth + OAuth). |
 | `scripts/testcheck/run-security-tests.ps1` | Danh sách 7 class của Batch 1 (Security core). |
 | `scripts/testcheck/run-core-tests.ps1` | Danh sách 10 class của luồng nghiệp vụ chính (bộ "P0" cũ). |
+| `scripts/testcheck/run-extra-tests.ps1` | Danh sách 8 class từng nằm ngoài harness (Batch 3, 40 test — §12). |
 
 Ngoài ra có một file test **không** phải test thật: `src/test/.../service/auth/impl/StubHttpClient.java`.
 Đây là fake `java.net.http.HttpClient` dùng chung cho 3 test OAuth. Vì tên không khớp `**/*Test.java`
@@ -301,8 +305,9 @@ nhất trước. (Bản đầu tiên để cờ lỗi ưu tiên hơn hàng đợ
 - Mỗi test phải trả lời được: **gọi cái gì → mong đợi gì**, và khi cần thì khẳng định thêm "không được
   chạm vào đâu" bằng `verifyNoInteractions(...)`.
 - Thêm class mới vào script bộ tương ứng (`run-auth-tests.ps1`, `run-security-tests.ps1`,
-  `run-core-tests.ps1`); nếu cần dependency mới thì thêm vào allow-list trong `build-classpath.ps1`
-  (kèm version khớp `pom.xml`).
+  `run-core-tests.ps1`, `run-extra-tests.ps1`); nếu cần dependency mới thì thêm vào allow-list trong
+  `build-classpath.ps1` (kèm version khớp `pom.xml`). **Test không nằm trong script nào là test chết** —
+  harness chỉ chạy đúng danh sách hardcode trong các script này.
 - Gọi HTTP trong code production → đừng `new HttpClient()` trong class, hãy tiêm từ `HttpClientConfig`
   rồi dùng `StubHttpClient` trong test. Gọi mạng thật trong unit test là thứ duy nhất không được phép
   (test phải chạy được khi offline).
@@ -417,12 +422,15 @@ Thêm mới (chưa commit):
 | `scripts/testcheck/run-auth-tests.ps1` | Bộ 104 test folder 00 (Batch 2: +`StubHttpClient`, +`SsoAuthInterfaceImplTest`) |
 | `scripts/testcheck/run-security-tests.ps1` | Bộ 89 test Batch 1 |
 | `scripts/testcheck/run-core-tests.ps1` | Bộ 124 test luồng nghiệp vụ chính |
+| `scripts/testcheck/run-extra-tests.ps1` | **Mới (Batch 3)**: bộ 40 test / 8 class từng nằm ngoài harness (§12) |
 | `docs/testing.md` | Tài liệu này |
 
 Lần đầu (folder 00 + core flow + Batch 1): **không** sửa `src/main`, không sửa `pom.xml`.
 Batch 2: sửa `src/main` đúng 4 file (refactor R1, hành vi không đổi) và **không** sửa `pom.xml` — 3 jar
 của SSO (`spring-security-oauth2-jose`, `spring-security-oauth2-core`, `nimbus-jose-jwt`) đã có sẵn
 trong `.m2` với đúng version `pom.xml` khai báo, chỉ cần thêm vào allow-list của harness.
+Batch 3: thêm `run-extra-tests.ps1` + 6 jar (mail/activation/micrometer) vào allow-list và comment
+cho 9 file test; **không** sửa `src/main`, **không** sửa `pom.xml`.
 
 ### 11.1. Lỗi đã gặp riêng ở Batch 2
 
@@ -441,7 +449,7 @@ Quét comment **không đổi hành vi**: chỉ thêm dòng comment vào 26 file
 |---|---|
 | Phạm vi | 26 class / 317 test (auth 104 + security 89 + core 124) |
 | Quy ước | mỗi test 3 khối `// Arrange:` → `// Act` → `// Assert:`; gộp `// Act & Assert:` khi gọi và assert cùng dòng; class javadoc thêm 1 dòng nhắc quy ước (§8) |
-| Ngoài phạm vi | 9 `*Test.java` không nằm trong script nào của harness: `AdminPositionServiceImplTest`, `AvatarReportEvaluatorTest`, `TwoFactorIntegrationTest` (cần Docker), `CvServiceImplTest`, `EmailServiceImplGmailTest`, `InterviewReminderServiceImplTest`, `QuestionPoolServiceImplTest`, `PositionRecommendationServiceImplTest`, `RegisterRequestValidationTest` |
+| Ngoài phạm vi | 9 `*Test.java` không nằm trong script nào của harness — 8 class đã được đăng ký tiếp ở Batch 3 (§12); chỉ `TwoFactorIntegrationTest` còn ngoài vì cần Docker |
 | Kiểm chứng | chạy lại 3 script: 104/104, 89/89, 124/124 — exit 0, không case nào đổi kết quả |
 | Số liệu đã sửa theo code | Google 15 → 17, GitHub 16 → 17, `UserAgentParserTest` 11 → 12 (9 `@Test` + 3 dòng `@CsvSource`) |
 
@@ -453,4 +461,40 @@ khoảng trắng đầu `" User not found with id : 9"` trong `UserServiceImplTe
 
 Kế hoạch gốc của đợt test nằm ở
 `C:\Users\LENOVO\AppData\Roaming\Qoder\SharedClientCache\cache\plans\Unit_First_Test_Strategy_6edac833.md`
-(Phase 1: folder 00 + core flow + Batch 1 + Batch 2 xong; Phase 2 contract test chờ Docker).
+(Phase 1: folder 00 + core flow + Batch 1 + Batch 2 + Batch 3 xong; Phase 2 contract test chờ Docker).
+
+## 12. Batch 3 — 8 class ngoài harness (40 test, tổng 357 test / 34 class)
+
+Trước batch này có 9 `*Test.java` tồn tại nhưng **không** script nào chạy — theo quy ước §8 đó là
+"test chết". Batch 3 đăng ký 8 class chạy offline được vào `run-extra-tests.ps1`; riêng
+`TwoFactorIntegrationTest` vẫn nằm ngoài vì cần Docker + MySQL (`@SpringBootTest` + Testcontainers).
+
+| Class | Test | Nội dung |
+|---|---|---|
+| `service/job/impl/PositionRecommendationServiceImplTest` | 7 | so khớp qua `SkillMatcher`, xếp hạng theo số khớp → % khớp → title, bỏ vị trí 0 khớp, limit sau khi xếp hạng, `matchPosition` 404 |
+| `service/admin/impl/AdminPositionServiceImplTest` | 11 | skills nhập tay được trim/khử trùng, chỉ gọi AI khi thiếu skills, slug thêm hậu tố `-2`, update thay thế skills, toggle active, 404 |
+| `service/infra/impl/EmailServiceImplGmailTest` | 7 | Gmail API giả bằng `HttpServer`: raw RFC 2822 + base64url, cache access token, 403 → `MailDeliveryException`, thiếu credential fail-fast, `dev-log`, SMTP được ưu tiên, SMTP 535 → `MailDeliveryException` |
+| `service/interview/impl/QuestionPoolServiceImplTest` | 5 | công thức sinh câu: tôn trọng lô 20, trần 200, không sinh khi đầy, `acquire` thoát sớm khi requested = 0 |
+| `service/interview/impl/InterviewReminderServiceImplTest` | 3 | FR-SCH-03: cửa sổ quét đúng 15 phút và kết thúc ở mốc 60 phút, 1 email cho mỗi bên, im lặng khi đơn đã rời SCHEDULED |
+| `service/ai/AvatarReportEvaluatorTest` | 3 | chỉ chấm lượt đã chốt, phiên rỗng vẫn có báo cáo, điểm luôn nằm trong 0..100 (không NaN) |
+| `service/document/impl/CvServiceImplTest` | 2 | GET CV kèm gợi ý vị trí; lỗi của bộ gợi ý không làm hỏng response |
+| `model/dto/request/RegisterRequestValidationTest` | 2 | DTO chỉ chặn lỗi cấu trúc; mật khẩu yếu phải xuống được service để còn ghi `register_attempts` |
+
+Sáu jar phải thêm vào allow-list của `build-classpath.ps1` (đúng version `pom.xml`):
+
+| Jar | Vì sao cần |
+|---|---|
+| `spring-context-support` 6.1.6 | `org.springframework.mail.javamail.JavaMailSender` (đường SMTP) |
+| `org.eclipse.angus:jakarta.mail` 2.0.3, `angus-activation` 2.0.2, `jakarta.activation-api` 2.1.3 | dựng `MimeMessage` thật trong test SMTP; thiếu `jakarta.activation.DataHandler` là chết ngay khi `new MimeMessage(...)` |
+| `micrometer-observation` 1.12.5, `micrometer-commons` 1.12.5 | `RestClient.builder()` trong `EmailServiceImpl` cần `ObservationRegistry`, chỉ thiếu lúc **runtime** nên lỗi là `NoClassDefFoundError` rất khó đoán |
+
+Vì vậy quy tắc của §8 được nhắc lại: thêm class vào script **và** thêm jar vào allow-list trong cùng một
+lần sửa; test compile được chưa có nghĩa là chạy được.
+
+Kết quả: extra **40/40**, ba bộ cũ vẫn xanh (104 + 89 + 124) → **357 test / 34 class / 0 fail**.
+Toàn bộ 9 file (kể cả `TwoFactorIntegrationTest`) đã có comment `// Arrange:` / `// Act` / `// Assert:`
+theo quy ước §8, không đổi assertion nào.
+
+**Ghi chú bảo mật:** `EmailServiceImplGmailTest` đang chứa một App Password Gmail trông như thật trong
+hai chỗ gọi `smtpService(...)`. Test không dùng mạng (SMTP đã bị mock) nên giá trị đó vô hại khi chạy,
+nhưng nếu repo được chia sẻ công khai thì nên thay bằng chuỗi giả và thu hồi App Password đó.
