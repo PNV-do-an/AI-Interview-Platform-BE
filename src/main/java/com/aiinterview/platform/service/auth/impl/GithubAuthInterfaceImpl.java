@@ -30,9 +30,8 @@ public class GithubAuthInterfaceImpl implements GithubAuthInterface {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
-            .build();
+    /** Bean từ HttpClientConfig — điểm tiêm để test các nhánh sau lời gọi HTTP. */
+    private final HttpClient httpClient;
 
     @Value("${GITHUB_CLIENT_ID:}")
     private String clientId;

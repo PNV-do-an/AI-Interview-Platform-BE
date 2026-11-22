@@ -23,6 +23,10 @@ $allow = @(
   'jakarta/transaction/jakarta.transaction-api/2.0.1/jakarta.transaction-api-2.0.1.jar',
   'org/springframework/security/spring-security-core/6.2.4/spring-security-core-6.2.4.jar',
   'org/springframework/security/spring-security-crypto/6.2.4/spring-security-crypto-6.2.4.jar',
+  # NimbusJwtDecoder (SSO id_token) - cần cho cả unit test lẫn rebuild-main.ps1
+  'org/springframework/security/spring-security-oauth2-jose/6.2.4/spring-security-oauth2-jose-6.2.4.jar',
+  'org/springframework/security/spring-security-oauth2-core/6.2.4/spring-security-oauth2-core-6.2.4.jar',
+  'com/nimbusds/nimbus-jose-jwt/9.24.4/nimbus-jose-jwt-9.24.4.jar',
   'org/junit/jupiter/junit-jupiter-api/5.10.2/junit-jupiter-api-5.10.2.jar',
   'org/junit/jupiter/junit-jupiter-params/5.10.2/junit-jupiter-params-5.10.2.jar',
   'org/junit/jupiter/junit-jupiter-engine/5.10.2/junit-jupiter-engine-5.10.2.jar',
