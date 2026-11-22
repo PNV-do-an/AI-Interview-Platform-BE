@@ -102,7 +102,7 @@ app:
     store-id: ${MOMO_STORE_ID:AIInterview}
     access-key: ${MOMO_ACCESS_KEY:}
     secret-key: ${MOMO_SECRET_KEY:}
-    create-url: ${MOMO_CREATE_URL:https://payment.momo.vn/v2/gateway/api/create}
+    create-url: ${MOMO_CREATE_URL:https://test-payment.momo.vn/v2/gateway/api/create}
     redirect-url: ${MOMO_REDIRECT_URL:http://localhost:8081/api/v1/payment/momo/return}
     ipn-url: ${MOMO_IPN_URL:http://localhost:8081/api/v1/payment/momo/ipn}
     request-type: ${MOMO_REQUEST_TYPE:captureWallet}
