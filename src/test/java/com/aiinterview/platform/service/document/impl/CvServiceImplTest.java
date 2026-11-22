@@ -19,6 +19,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+/**
+ * GET CV có kèm gợi ý vị trí: phần gợi ý là "phụ" nên không được phép làm hỏng cả response.
+ * Test ghi lại đúng ranh giới này — lỗi của bộ gợi ý bị nuốt, CV vẫn trả bình thường.
+ *
+ * <p>Mỗi test chia 3 khối comment: <b>Arrange</b> → <b>Act</b> → <b>Assert</b>.</p>
+ */
 class CvServiceImplTest {
 
     private static final Long USER_ID = 7L;
@@ -39,6 +45,7 @@ class CvServiceImplTest {
 
     @Test
     void getCvEmbedsRecommendedPositions() {
+        // Arrange: user có CV, bộ gợi ý trả 1 vị trí khớp 75%
         when(userCvRepository.findByUserId(USER_ID))
                 .thenReturn(Optional.of(UserCv.builder().id(1L).targetPosition("Backend").build()));
         when(positionRecommendationService.recommend(USER_ID, 5))
@@ -49,8 +56,10 @@ class CvServiceImplTest {
                         .matchPercentage(75)
                         .build()));
 
+        // Act
         CvParseResponse response = service.getCv(USER_ID);
 
+        // Assert: dữ liệu CV gốc và danh sách gợi ý cùng có mặt trong một response
         assertThat(response.getTargetPosition()).isEqualTo("Backend");
         assertThat(response.getRecommendedPositions()).hasSize(1);
         assertThat(response.getRecommendedPositions().get(0).getMatchPercentage()).isEqualTo(75);
@@ -58,13 +67,16 @@ class CvServiceImplTest {
 
     @Test
     void getCvStillReturnsCvWhenRecommendationFails() {
+        // Arrange: bộ gợi ý ném lỗi (catalog chưa sẵn sàng)
         when(userCvRepository.findByUserId(USER_ID))
                 .thenReturn(Optional.of(UserCv.builder().id(1L).build()));
         when(positionRecommendationService.recommend(USER_ID, 5))
                 .thenThrow(new IllegalStateException("catalog unavailable"));
 
+        // Act: lỗi ở bước gợi ý không được ném ra ngoài
         CvParseResponse response = service.getCv(USER_ID);
 
+        // Assert: CV vẫn trả về, chỉ mất phần gợi ý
         assertThat(response.getCvId()).isEqualTo(1L);
         assertThat(response.getRecommendedPositions()).isEmpty();
     }

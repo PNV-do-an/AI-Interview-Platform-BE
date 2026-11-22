@@ -36,6 +36,8 @@ import static org.mockito.Mockito.when;
 /**
  * FR-SCH-03: job nhắc lịch chạy ngoài luồng HTTP nên cửa sổ quét và số email phải chốt ở tầng service.
  * Không có bảng "đã nhắc", vì vậy đúng một lần chạy được phép bắt kịp một buổi.
+ *
+ * <p>Mỗi test chia 3 khối comment: <b>Arrange</b> → <b>Act</b> → <b>Assert</b>.</p>
  */
 @ExtendWith(MockitoExtension.class)
 class InterviewReminderServiceImplTest {
@@ -55,29 +57,34 @@ class InterviewReminderServiceImplTest {
     @Test
     @DisplayName("REM-1: cửa sổ quét rộng đúng bằng nhịp cron và nằm trước giờ hẹn đúng lead")
     void reminderWindowIsOnePollWideAheadOfLeadTime() {
+        // Arrange: nhắc trước 60 phút, cửa sổ 15 phút (đúng nhịp cron); chưa có buổi nào
         lead(60, 15);
         when(slotRepository.findByBookedByIsNotNullAndCancelledFalseAndStartTimeGreaterThanEqualAndStartTimeLessThan(
                 any(), any())).thenReturn(List.of());
 
+        // Act: ghi lại mốc bắt đầu để so với cửa sổ mà job vừa tính
         LocalDateTime startedAt = LocalDateTime.now();
         reminderService.remindUpcomingInterviews();
 
+        // Assert: bắt lấy cặp tham số thật sự được truyền xuống repository
         ArgumentCaptor<LocalDateTime> from = ArgumentCaptor.forClass(LocalDateTime.class);
         ArgumentCaptor<LocalDateTime> to = ArgumentCaptor.forClass(LocalDateTime.class);
         verify(slotRepository).findByBookedByIsNotNullAndCancelledFalseAndStartTimeGreaterThanEqualAndStartTimeLessThan(
                 from.capture(), to.capture());
 
+        // Assert: cửa sổ rộng đúng 15 phút, nằm trong [now+lead-window, now+lead)
         assertEquals(15L, Duration.between(from.getValue(), to.getValue()).toMinutes());
-        // [now+lead-window, now+lead): biên dưới không sớm hơn now+45, biên trên không muộn hơn now+60.
         assertTrue(!from.getValue().isBefore(startedAt.plusMinutes(45)), "cửa sổ phải bắt đầu từ now+45");
         assertTrue(to.getValue().isAfter(startedAt.plusMinutes(55)), "cửa sổ phải kết thúc quanh now+60");
-        // Không có buổi nào thì đừng chạm repository đơn.
+
+        // Assert: không có buổi nào thì đừng chạm repository đơn ứng tuyển
         verifyNoInteractions(applicationRepository);
     }
 
     @Test
     @DisplayName("REM-2: mỗi buổi đã chốt gửi đúng một email cho ứng viên và một cho người phỏng vấn")
     void sendsOneEmailToEachSideOfAScheduledBooking() {
+        // Arrange: một slot đã được book trong cửa sổ, có application ở trạng thái SCHEDULED
         lead(60, 15);
         InterviewSlot slot = slot(LocalDateTime.now().plusMinutes(50));
         Application application = scheduledApplication(slot);
@@ -86,8 +93,10 @@ class InterviewReminderServiceImplTest {
         when(applicationRepository.findBySlotIdInAndStatus(anyCollection(), eq(ApplicationStatus.SCHEDULED)))
                 .thenReturn(List.of(application));
 
+        // Act
         reminderService.remindUpcomingInterviews();
 
+        // Assert: 2 email, đúng người nhận + đúng vai trò trong nội dung (không gửi cho employer 2 lần)
         verify(emailService).sendInterviewReminderEmail(eq("candidate@example.com"), eq("Candidate One"),
                 eq("Backend Java Developer"), anyString(), eq("Ứng viên"));
         verify(emailService).sendInterviewReminderEmail(eq("employer@example.com"), eq("Employer One"),
@@ -97,6 +106,7 @@ class InterviewReminderServiceImplTest {
     @Test
     @DisplayName("REM-3: slot còn mang dấu của đơn đã rời vòng hẹn lịch thì im lặng, không nhắc ma")
     void skipsSlotWhoseApplicationLeftTheScheduledStage() {
+        // Arrange: slot còn tồn tại nhưng application đã rời SCHEDULED (bị huỷ / đổi lịch)
         lead(60, 15);
         InterviewSlot slot = slot(LocalDateTime.now().plusMinutes(50));
         when(slotRepository.findByBookedByIsNotNullAndCancelledFalseAndStartTimeGreaterThanEqualAndStartTimeLessThan(
@@ -104,16 +114,20 @@ class InterviewReminderServiceImplTest {
         when(applicationRepository.findBySlotIdInAndStatus(anyCollection(), eq(ApplicationStatus.SCHEDULED)))
                 .thenReturn(List.of());
 
+        // Act
         reminderService.remindUpcomingInterviews();
 
+        // Assert: không gửi email nào — nhắc một buổi đã huỷ sẽ làm ứng viên hoang mang
         verifyNoInteractions(emailService);
     }
 
+    /** leadMinutes / windowMinutes là @Value nên phải tiêm tay trước mỗi lần chạy job. */
     private void lead(long leadMinutes, long windowMinutes) {
         ReflectionTestUtils.setField(reminderService, "leadMinutes", leadMinutes);
         ReflectionTestUtils.setField(reminderService, "windowMinutes", windowMinutes);
     }
 
+    /** Slot đã book: có ứng viên (bookedBy) và người phỏng vấn (employer). */
     private InterviewSlot slot(LocalDateTime startTime) {
         User employer = user(2L, "employer@example.com", "Employer One");
         return InterviewSlot.builder()
@@ -125,6 +139,7 @@ class InterviewReminderServiceImplTest {
                 .build();
     }
 
+    /** Application đang ở SCHEDULED, gắn đúng slot + job để email lấy được tên vị trí. */
     private Application scheduledApplication(InterviewSlot slot) {
         JobDescription job = JobDescription.builder()
                 .employer(slot.getEmployer())

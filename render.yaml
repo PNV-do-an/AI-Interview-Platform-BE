@@ -44,3 +44,7 @@ services:
         value: "Ov23liAxCHIj9EZrkmMk"
       - key: GITHUB_CLIENT_SECRET
         sync: false
+      # OpenAiClient doc ai.api-key = ${OPENAI_API_KEY:} trong application.yml.
+      # sync: false = Render hoi gia tri trong dashboard, khong commit key vao repo.
+      - key: OPENAI_API_KEY
+        sync: false

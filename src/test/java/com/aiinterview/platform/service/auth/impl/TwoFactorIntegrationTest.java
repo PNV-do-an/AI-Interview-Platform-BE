@@ -41,7 +41,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** Full-loop 2FA on a real MySQL: setup → enable → login challenge → verify-otp → recovery → disable. */
+/**
+ * Full-loop 2FA on a real MySQL: setup → enable → login challenge → verify-otp → recovery → disable.
+ *
+ * <p>Đây là test duy nhất của folder 00 cần Docker (Testcontainers kéo MySQL 8.0), nên nó không
+ * nằm trong {@code run-auth-tests.ps1}. Các test còn lại của 2FA ở tầng service vẫn chạy offline.</p>
+ *
+ * <p>Mỗi test chia 3 khối comment: <b>Arrange</b> → <b>Act</b> → <b>Assert</b>.</p>
+ */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Testcontainers
@@ -52,6 +59,7 @@ class TwoFactorIntegrationTest {
     @Container
     static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0");
 
+    /** Trỏ Spring Boot vào MySQL của container thay vì cấu hình trong application.yml. */
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", mysql::getJdbcUrl);
@@ -59,6 +67,7 @@ class TwoFactorIntegrationTest {
         registry.add("spring.datasource.password", mysql::getPassword);
     }
 
+    /** Không gửi mail thật trong test — EmailService bị thay bằng mock. */
     @MockBean
     private EmailService emailService;
 
@@ -82,11 +91,13 @@ class TwoFactorIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        // Arrange dùng chung: dọn sạch dữ liệu các test trước để đếm rate-limit không bị lẫn
         recoveryCodeRepository.deleteAll();
         userRepository.deleteAll();
         jdbcTemplate.update("delete from login_attempts");
         jdbcTemplate.update("delete from admin_audit_log");
 
+        // Tạo sẵn 1 user thường và 1 admin, mật khẩu đã băm bằng đúng PasswordEncoder của app
         member = userRepository.save(User.builder()
                 .email("member@example.com").password(passwordEncoder.encode("password123"))
                 .fullName("Member").role(Role.ROLE_USER).enabled(true).build());
@@ -95,6 +106,7 @@ class TwoFactorIntegrationTest {
                 .fullName("Admin").role(Role.ROLE_ADMIN).enabled(true).build());
     }
 
+    /** Mint access token thật cho user (sid = null vì test không cần gắn phiên). */
     private String bearerFor(User user) {
         return "Bearer " + JwtUtil.generateAccessToken(
                 user.getEmail(), user.getRole().name(), user.getTokenVersion(), null);
@@ -102,11 +114,14 @@ class TwoFactorIntegrationTest {
 
     /** setup + enable qua API thật, trả về secret đã bật thành công. */
     private String enable2fa(User user) throws Exception {
+        // Bước 1: gọi /2fa/setup để lấy secret
         MvcResult setup = mockMvc.perform(post("/api/v1/auth/2fa/setup")
                         .header(HttpHeaders.AUTHORIZATION, bearerFor(user)).with(csrf()))
                 .andExpect(status().isOk())
                 .andReturn();
         String secret = JsonNode.class.cast(read(setup).get("data")).get("secret").asText();
+
+        // Bước 2: xác nhận bằng OTP sinh từ chính secret đó => 8 recovery code được cấp
         mockMvc.perform(post("/api/v1/auth/2fa/enable")
                         .header(HttpHeaders.AUTHORIZATION, bearerFor(user)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -116,10 +131,12 @@ class TwoFactorIntegrationTest {
         return secret;
     }
 
+    /** Đọc body JSON của response để lấy field lồng trong "data". */
     private JsonNode read(MvcResult result) throws Exception {
         return objectMapper.readTree(result.getResponse().getContentAsString());
     }
 
+    /** Đăng nhập và trả nguyên cục "data" dưới dạng JSON string để test tự kiểm tra field. */
     private String login(String email, String password) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -131,22 +148,31 @@ class TwoFactorIntegrationTest {
 
     @Test
     void anonymousCannotTouchSelfServiceEndpoints() throws Exception {
+        // Arrange: không gửi header Authorization
+
+        // Act & Assert: endpoint tự phục vụ của 2FA yêu cầu đăng nhập, trả 401 chứ không 200
         mockMvc.perform(get("/api/v1/auth/2fa"))
                 .andExpect(status().isUnauthorized());
     }
 
     @Test
     void loginWithout2faStillReturnsTokensDirectly() throws Exception {
+        // Arrange: member chưa bật 2FA
+
+        // Act
         String data = login("member@example.com", "password123");
+
+        // Assert: trả JWT thẳng như trước, không sinh challenge
         assertTrue(data.contains("accessToken"));
         assertFalse(data.contains("\"mfaRequired\":true"));
     }
 
     @Test
     void fullLoopSetupEnableLoginChallengeVerify() throws Exception {
+        // Arrange: bật 2FA cho member qua API thật
         enable2fa(member);
 
-        // Bước một: mật khẩu đúng nhưng chỉ nhận về challenge, KHÔNG có JWT.
+        // Act: bước một — mật khẩu đúng nhưng chỉ nhận về challenge, KHÔNG có JWT
         MvcResult first = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"member@example.com\",\"password\":\"password123\"}"))
@@ -157,12 +183,12 @@ class TwoFactorIntegrationTest {
         String challenge = read(first).get("data").get("challengeToken").asText();
         assertNotNull(challenge);
 
-        // Challenge token không được hoạt động như access token.
+        // Assert: challenge token không được hoạt động như access token
         mockMvc.perform(get("/api/v1/auth/me")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + challenge))
                 .andExpect(status().isUnauthorized());
 
-        // Bước hai: OTP đúng → JWT thật, dùng được ngay.
+        // Act: bước hai — OTP đúng (sinh từ secret đọc lại trong DB) => JWT thật
         MvcResult second = mockMvc.perform(post("/api/v1/auth/verify-otp")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"challengeToken\":\"" + challenge + "\",\"code\":\""
@@ -170,6 +196,8 @@ class TwoFactorIntegrationTest {
                 .andExpect(status().isOk())
                 .andReturn();
         String accessToken = read(second).get("data").get("accessToken").asText();
+
+        // Assert: token vừa cấp dùng được ngay và /me báo đúng trạng thái 2FA
         mockMvc.perform(get("/api/v1/auth/me")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
                 .andExpect(status().isOk())
@@ -179,6 +207,7 @@ class TwoFactorIntegrationTest {
 
     @Test
     void wrongOtpIsRejectedAndChallengeStaysSinglePurpose() throws Exception {
+        // Arrange: bật 2FA rồi lấy challenge từ bước đăng nhập
         enable2fa(member);
         MvcResult first = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -186,6 +215,7 @@ class TwoFactorIntegrationTest {
                 .andReturn();
         String challenge = read(first).get("data").get("challengeToken").asText();
 
+        // Act & Assert: OTP sai phải bị từ chối 401, challenge không được đổi thành token
         mockMvc.perform(post("/api/v1/auth/verify-otp")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"challengeToken\":\"" + challenge + "\",\"code\":\"000000\"}"))
@@ -194,6 +224,7 @@ class TwoFactorIntegrationTest {
 
     @Test
     void recoveryCodeWorksOnceThenOtpRequiredAgain() throws Exception {
+        // Arrange: setup + enable rồi giữ lại recovery code đầu tiên
         MvcResult setup = mockMvc.perform(post("/api/v1/auth/2fa/setup")
                         .header(HttpHeaders.AUTHORIZATION, bearerFor(member)).with(csrf()))
                 .andReturn();
@@ -205,24 +236,26 @@ class TwoFactorIntegrationTest {
                 .andReturn();
         String recovery = read(enabled).get("data").get("recoveryCodes").get(0).asText();
 
+        // Act: lần đăng nhập đầu dùng recovery code thay OTP
         MvcResult firstLogin = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"member@example.com\",\"password\":\"password123\"}"))
                 .andReturn();
         String challenge = read(firstLogin).get("data").get("challengeToken").asText();
-
         mockMvc.perform(post("/api/v1/auth/verify-otp")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"challengeToken\":\"" + challenge + "\",\"code\":\"" + recovery + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.accessToken").exists());
 
-        // Dùng lại đúng mã đó: recovery code một lần, phải bị từ chối.
+        // Act: dùng lại đúng mã đó ở lần đăng nhập thứ hai
         MvcResult secondLogin = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"member@example.com\",\"password\":\"password123\"}"))
                 .andReturn();
         String challenge2 = read(secondLogin).get("data").get("challengeToken").asText();
+
+        // Assert: recovery code là dùng-một-lần, lần thứ hai bị từ chối
         mockMvc.perform(post("/api/v1/auth/verify-otp")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"challengeToken\":\"" + challenge2 + "\",\"code\":\"" + recovery + "\"}"))
@@ -231,19 +264,26 @@ class TwoFactorIntegrationTest {
 
     @Test
     void memberCannotForceDisableSomeoneElses2fa() throws Exception {
+        // Arrange: member đã bật 2FA và đang tự gọi endpoint admin để tắt 2FA của chính mình
         enable2fa(member);
+
+        // Act & Assert: chỉ admin mới có quyền, member nhận 403
         mockMvc.perform(patch("/api/v1/admin/users/" + member.getId() + "/2fa")
                         .header(HttpHeaders.AUTHORIZATION, bearerFor(member))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"test\"}"))
                 .andExpect(status().isForbidden());
+
+        // Assert: 2FA vẫn còn bật — request bị chặn không được ghi DB
         assertTrue(member.isTotpEnabled() || reloadMember().isTotpEnabled());
     }
 
     @Test
     void adminForceDisableClearsEverythingAndAudits() throws Exception {
+        // Arrange: member bật 2FA, admin có token hợp lệ + lý do bắt buộc
         enable2fa(member);
 
+        // Act: admin buộc tắt 2FA (mất thiết bị xác thực)
         mockMvc.perform(patch("/api/v1/admin/users/" + member.getId() + "/2fa")
                         .header(HttpHeaders.AUTHORIZATION, bearerFor(admin))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -251,17 +291,21 @@ class TwoFactorIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.twoFactorEnabled").value(false));
 
+        // Assert: xoá sạch secret + toàn bộ recovery code chưa dùng
         assertFalse(reloadMember().isTotpEnabled());
         assertNull(reloadMember().getTotpSecret());
         assertEquals(0, recoveryCodeRepository.findByUserIdAndUsedAtIsNull(member.getId()).size());
 
-        // Sau khi bị force-disable, login thường trả JWT thẳng — user mất thiết bị đã thoát được.
+        // Assert: sau khi bị force-disable, login thường trả JWT thẳng — user mất thiết bị đã thoát được
         assertTrue(login("member@example.com", "password123").contains("accessToken"));
     }
 
     @Test
     void forceDisableWithoutReasonIsRejected() throws Exception {
+        // Arrange: member bật 2FA, admin gửi body rỗng (thiếu reason để ghi audit)
         enable2fa(member);
+
+        // Act & Assert: 400 vì thao tác nhạy cảm buộc phải có lý do
         mockMvc.perform(patch("/api/v1/admin/users/" + member.getId() + "/2fa")
                         .header(HttpHeaders.AUTHORIZATION, bearerFor(admin))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -270,6 +314,7 @@ class TwoFactorIntegrationTest {
     }
 
     private User reloadMember() {
+        // Đọc lại từ DB để chắc chắn giá trị đến từ UPDATE thật, không phải entity trong bộ nhớ
         return userRepository.findById(member.getId()).orElseThrow();
     }
 

@@ -18,6 +18,14 @@ $allow = @(
   'org/springframework/spring-tx/6.1.6/spring-tx-6.1.6.jar',
   'org/springframework/spring-web/6.1.6/spring-web-6.1.6.jar',
   'org/springframework/spring-test/6.1.6/spring-test-6.1.6.jar',
+  # Mail: JavaMailSender (SMTP) + jakarta.mail thật để dựng MimeMessage trong EmailServiceImplGmailTest
+  'org/springframework/spring-context-support/6.1.6/spring-context-support-6.1.6.jar',
+  'org/eclipse/angus/jakarta.mail/2.0.3/jakarta.mail-2.0.3.jar',
+  'org/eclipse/angus/angus-activation/2.0.2/angus-activation-2.0.2.jar',
+  'jakarta/activation/jakarta.activation-api/2.1.3/jakarta.activation-api-2.1.3.jar',
+  # RestClient.builder() trong EmailServiceImpl cần ObservationRegistry (micrometer, version theo Boot 3.2.5)
+  'io/micrometer/micrometer-observation/1.12.5/micrometer-observation-1.12.5.jar',
+  'io/micrometer/micrometer-commons/1.12.5/micrometer-commons-1.12.5.jar',
   'org/springframework/data/spring-data-commons/3.2.5/spring-data-commons-3.2.5.jar',
   'org/springframework/data/spring-data-jpa/3.2.5/spring-data-jpa-3.2.5.jar',
   'jakarta/transaction/jakarta.transaction-api/2.0.1/jakarta.transaction-api-2.0.1.jar',
