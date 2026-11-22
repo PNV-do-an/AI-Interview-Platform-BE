@@ -100,6 +100,14 @@ app:
     locale: ${VNPAY_LOCALE:vn}
     currency: ${VNPAY_CURRENCY:VND}
     expire-minutes: ${VNPAY_EXPIRE_MINUTES:15}
+  zalopay:
+    app-id: ${ZALOPAY_APP_ID:554}
+    key1: ${ZALOPAY_KEY1:8NdU5pG5R2spGHGhyO99HN1OhD8IQJBn}
+    key2: ${ZALOPAY_KEY2:uUfsWgfLkRLzq6W2uNXTCxrfxs51auny}
+    create-url: ${ZALOPAY_CREATE_URL:https://sb-openapi.zalopay.vn/v2/create}
+    query-url: ${ZALOPAY_QUERY_URL:https://sb-openapi.zalopay.vn/v2/query}
+    callback-url: ${ZALOPAY_CALLBACK_URL:http://localhost:8080/api/v1/payment/zalopay/callback}
+    redirect-url: ${ZALOPAY_REDIRECT_URL:http://localhost:3000/payment/zalopay/result}
 
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
