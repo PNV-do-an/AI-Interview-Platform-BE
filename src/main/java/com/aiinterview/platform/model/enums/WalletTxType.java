@@ -11,6 +11,5 @@ public enum WalletTxType {
     PACKAGE_PURCHASE,
     AI_CREDIT_PURCHASE,
     AI_CREDIT_USAGE,
-    ZALOPAY_TOPUP,
-    MOMO_TOPUP
+    PAYOS_TOPUP
 }

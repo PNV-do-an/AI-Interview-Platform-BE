@@ -88,26 +88,13 @@ app:
     cron: ${INTERVIEW_REMINDER_CRON:0 */15 * * * *}
     window-minutes: ${INTERVIEW_REMINDER_WINDOW_MINUTES:15}
     lead-minutes: ${INTERVIEW_REMINDER_LEAD_MINUTES:60}
-  zalopay:
-    app-id: ${ZALOPAY_APP_ID:554}
-    key1: ${ZALOPAY_KEY1:8NdU5pG5R2spGHGhyO99HN1OhD8IQJBn}
-    key2: ${ZALOPAY_KEY2:uUfsWgfLkRLzq6W2uNXTCxrfxs51auny}
-    create-url: ${ZALOPAY_CREATE_URL:https://sb-openapi.zalopay.vn/v2/create}
-    query-url: ${ZALOPAY_QUERY_URL:https://sb-openapi.zalopay.vn/v2/query}
-    callback-url: ${ZALOPAY_CALLBACK_URL:http://localhost:8081/api/v1/payment/zalopay/callback}
-    redirect-url: ${ZALOPAY_REDIRECT_URL:http://localhost:8081/api/v1/payment/zalopay/return}
-  momo:
-    partner-code: ${MOMO_PARTNER_CODE:}
-    partner-name: ${MOMO_PARTNER_NAME:AI Interview}
-    store-id: ${MOMO_STORE_ID:AIInterview}
-    access-key: ${MOMO_ACCESS_KEY:}
-    secret-key: ${MOMO_SECRET_KEY:}
-    create-url: ${MOMO_CREATE_URL:https://test-payment.momo.vn/v2/gateway/api/create}
-    redirect-url: ${MOMO_REDIRECT_URL:http://localhost:8081/api/v1/payment/momo/return}
-    ipn-url: ${MOMO_IPN_URL:http://localhost:8081/api/v1/payment/momo/ipn}
-    request-type: ${MOMO_REQUEST_TYPE:captureWallet}
-    order-type: ${MOMO_ORDER_TYPE:momo_wallet}
-    lang: ${MOMO_LANG:vi}
+  payos:
+    client-id: ${PAYOS_CLIENT_ID:}
+    api-key: ${PAYOS_API_KEY:}
+    checksum-key: ${PAYOS_CHECKSUM_KEY:}
+    base-url: ${PAYOS_BASE_URL:https://api-merchant.payos.vn}
+    return-url: ${PAYOS_RETURN_URL:http://localhost:8081/api/v1/payment/payos/return}
+    cancel-url: ${PAYOS_CANCEL_URL:http://localhost:8081/api/v1/payment/payos/cancel}
 
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}

@@ -114,7 +114,7 @@ class OrderServiceImplTest {
         // Assert: gia va ten goi duoc chep tai thoi diem mua (goi doi gia sau khong anh huong don cu)
         assertThat(response.getAmount()).isEqualTo(299_000L);
         assertThat(response.getPackageName()).isEqualTo("Goi Pro");
-        assertThat(response.getPaymentMethod()).isEqualTo("ZALOPAY");
+        assertThat(response.getPaymentMethod()).isEqualTo("PAYOS");
 
         // Assert: orderCode duoc sinh theo tien to ORD- va chua thanh toan nen paidAt null
         assertThat(response.getOrderCode()).startsWith("ORD-");
@@ -295,7 +295,7 @@ class OrderServiceImplTest {
     private OrderRequest request() {
         OrderRequest request = new OrderRequest();
         request.setPackageId(PACKAGE_ID);
-        request.setPaymentMethod("ZALOPAY");
+        request.setPaymentMethod("PAYOS");
         return request;
     }
 
@@ -319,7 +319,7 @@ class OrderServiceImplTest {
                 .packageName("Goi Pro")
                 .amount(299_000L)
                 .status(status)
-                .paymentMethod("ZALOPAY")
+                .paymentMethod("PAYOS")
                 .createdAt(LocalDateTime.now())
                 .build();
     }

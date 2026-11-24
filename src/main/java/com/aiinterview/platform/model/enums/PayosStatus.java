@@ -1,6 +1,6 @@
 package com.aiinterview.platform.model.enums;
 
-public enum ZalopayStatus {
+public enum PayosStatus {
     PENDING,
     SUCCESS,
     FAILED
