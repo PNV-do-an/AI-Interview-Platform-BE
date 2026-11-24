@@ -44,6 +44,16 @@ public class PayosController {
     /** Browser redirect từ payOS; BE verify lại rồi 302 về trang kết quả của FE. */
     @GetMapping("/return")
     public ResponseEntity<Void> returnFromPayos(@RequestParam Map<String, String> params) {
+        return redirectToResult(params);
+    }
+
+    /** payOS redirect về đây khi người dùng bấm huỷ trên trang checkout. */
+    @GetMapping("/cancel")
+    public ResponseEntity<Void> cancelFromPayos(@RequestParam Map<String, String> params) {
+        return redirectToResult(params);
+    }
+
+    private ResponseEntity<Void> redirectToResult(Map<String, String> params) {
         return ResponseEntity.status(HttpStatus.FOUND)
                 .location(URI.create(payosService.handleReturn(params)))
                 .build();

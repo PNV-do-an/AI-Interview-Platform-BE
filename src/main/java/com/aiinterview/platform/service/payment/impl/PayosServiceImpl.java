@@ -202,7 +202,7 @@ public class PayosServiceImpl implements PayosService {
             return resultPage("error", orderCodeRaw);
         }
 
-        PayosTransaction txn = txnRepository.findByOrderCode(orderCode).orElse(null);
+        PayosTransaction txn = txnRepository.findByOrderCodeForUpdate(orderCode).orElse(null);
         if (txn == null) return resultPage("error", orderCodeRaw);
         if (txn.getStatus() == PayosStatus.SUCCESS) return resultPage("success", orderCodeRaw);
 
@@ -236,7 +236,7 @@ public class PayosServiceImpl implements PayosService {
         User user = userRepository.findById(txn.getUserId()).orElse(null);
         if (user != null) {
             walletService.creditAvailable(user, txn.getAmount(), "PAYOS_TOPUP", "PAYOS",
-                    txn.getId(), String.valueOf(txn.getOrderCode()),
+                    txn.getId(), "PAYOS-" + txn.getOrderCode(),
                     "Nap tien qua payOS " + txn.getOrderCode());
         }
     }
@@ -264,7 +264,7 @@ public class PayosServiceImpl implements PayosService {
     private void markFailed(String orderCodeRaw) {
         if (isBlank(orderCodeRaw)) return;
         try {
-            txnRepository.findByOrderCode(Long.parseLong(orderCodeRaw)).ifPresent(txn -> {
+            txnRepository.findByOrderCodeForUpdate(Long.parseLong(orderCodeRaw)).ifPresent(txn -> {
                 if (txn.getStatus() == PayosStatus.PENDING) {
                     txn.setStatus(PayosStatus.FAILED);
                     txnRepository.save(txn);
