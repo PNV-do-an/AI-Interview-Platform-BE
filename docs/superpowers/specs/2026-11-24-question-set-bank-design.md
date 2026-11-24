@@ -170,6 +170,18 @@ Lý do dùng cột thay vì tính trong query: nhiều mốc khác nhau cho từ
 - `ADMIN`: admin khai báo → là ràng buộc, AI phải chọn trong danh sách.
 - `AI_SUGGESTED`: AI tự đặt nhãn khi skill chưa có taxonomy → chỉ là đề xuất, admin đổi tên hoặc gộp.
 
+**Phạm vi của `subtopic_key`:** identity là **cặp** `(skill_key, subtopic_key)`, không phải `subtopic_key` đơn lẻ. `networking` của skill `docker` và `networking` của skill `computer networking` là **hai row khác nhau**, coverage đo riêng, câu hỏi sinh riêng. Nhãn chỉ có nghĩa trong ngữ cảnh skill → prompt luôn gửi `skill` + `subtopic_key` + `subtopic_name` cùng lúc để AI không hiểu lệch; `subtopic_name` viết đủ nghĩa cho admin đọc (`Docker networking`).
+
+Không có bảng catalog subtopic toàn cục và không có bảng liên kết subtopic–nhiều-skill: coverage chạy theo cell tức theo skill, nên catalog chung chỉ thêm bảng mapping mà không mở thêm khả năng nào. Muốn tái dùng taxonomy giữa 2 skill cùng chủ đề thì đó là **thao tác copy lúc khai báo**, không phải thay đổi data model.
+
+**`source` được dùng ở đúng 3 chỗ:**
+
+1. Quyết định AI có bị ràng buộc vào danh sách hay không (§7.3.1 bước 1) — chỉ row `ADMIN` mới ràng buộc.
+2. Hiển thị cờ "cần xem lại" ở màn coverage.
+3. Ghi nhận khi admin promote: `POST /subtopics/{id}/promote` → `source = ADMIN`.
+
+Bỏ `source` thì mất điểm (1): AI bị khoá vĩnh viễn vào nhãn đầu tiên nó tự đặt, coverage không mở rộng được.
+
 ### 4.9 Migration
 
 Flyway đang tắt (`flyway.enabled=false`, bảng do `ddl-auto` tạo) nên **không thêm file `.sql` vào `db/migration`**. Cần chạy tay script idempotent trên DB thật:
@@ -509,6 +521,7 @@ Và thêm assertion vào integration test theo đúng pattern hiện có: ADMIN 
 PUT   /api/v1/admin/skills/{skillKey}/subtopics   { subtopics: [{ key, name }] }
 GET   /api/v1/admin/question-sets/coverage?skillKey=
 PATCH /api/v1/admin/subtopics/{id}                { name }      // đổi tên hiển thị
+POST  /api/v1/admin/subtopics/{id}/promote                     // AI_SUGGESTED → ADMIN
 POST  /api/v1/admin/subtopics/{id}/merge          { targetId }  // gộp nhãn AI về subtopic chính thức
 ```
 
