@@ -62,6 +62,10 @@ Mở `checkoutUrl`, quét QR / chuyển khoản với nội dung payOS hiển th
 - `GET /api/v1/payment/payos/status?orderCode=...` (JWT) → query payOS; nếu `PAID` thì cộng ví ngay,
   trả `{ status: PENDING|SUCCESS|FAILED, amount, ... }`. FE dùng endpoint này thay vì tin query param.
 - Scheduler `reconcilePendingPayments` quét txn `PENDING` trong 24h gần nhất mỗi 2 phút.
+- Khi verify chữ ký response của `GET /v2/payment-requests/{id}`: sort key alphabetically, scalar
+  top-level chuyển thành text (`null` → `""`), nhưng `null`/number/bool trong `transactions[]` phải
+  giữ nguyên kiểu JSON. Đổi nested `null` thành `""` sẽ làm HMAC lệch và giao dịch `PAID` bị đọc là
+  `PENDING`.
 - Gọi lại webhook/status nhiều lần → số dư không đổi (idempotency key `PAYOS-<orderCode>` + khoá row).
 
 ## 5. Kiểm tra ví
