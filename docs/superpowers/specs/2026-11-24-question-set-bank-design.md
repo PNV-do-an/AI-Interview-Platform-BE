@@ -43,6 +43,9 @@ Giới hạn đã biết và chấp nhận: **không thể chặn 100% trùng ng
 | D14 | Set khoá theo **skill**, không gắn `position_id` | cùng skill dùng lại được cho nhiều position |
 | D15 | Interview **ghép nhiều set** theo `position_skill`, không sinh set riêng | tận dụng bộ đã có, chỉ lấy subset |
 | D16 | Thêm module `question-sets` vào permission matrix | matrix là code + test gọi HTTP thật |
+| D17 | **Mọi bộ** đều có subtopic, kể cả bộ AI tự đặt nhãn | đo coverage được cho toàn bộ bank |
+| D18 | `skill_subtopic` là **một** bảng, phân biệt bằng `source` | một identity, không phải hai thước đo |
+| D19 | Trần hiệu dụng = `max(max-sets-per-cell, subtopicCount × sets-per-subtopic)` | tránh trần chặn coverage |
 
 ### Điều chỉnh so với yêu cầu "bỏ archived"
 
@@ -73,6 +76,7 @@ Một set bị reject toàn bộ → tự động không còn được chọn (k
 | `question_type` | VARCHAR(20) NOT NULL | `QuestionType` |
 | `language` | VARCHAR(8) NOT NULL | |
 | `theme` | VARCHAR(255) NOT NULL | bối cảnh chung của bộ |
+| `subtopic_id` | BIGINT NOT NULL, FK → `skill_subtopic.id` | mọi bộ đều thuộc đúng 1 subtopic, kể cả bộ AI tự đặt nhãn |
 | `archetype_quota` | JSON | snapshot quota dùng lúc sinh |
 | `times_used` | INT NOT NULL DEFAULT 0 | rotation ở cấp bộ |
 | `created_by` | BIGINT NULL | admin tạo tay; NULL = hệ thống tự sinh |
@@ -99,6 +103,10 @@ Ràng buộc: `UNIQUE (skill_key, content_key)`. MySQL cho phép nhiều NULL n�
 `QuestionSetScope`: `STUDY, INTERVIEW`.
 
 `QuestionReviewStatus`: `AUTO_APPROVED, APPROVED, REJECTED`.
+
+`SubtopicSource`: `ADMIN, AI_SUGGESTED`.
+
+`SubtopicStatus`: `ACTIVE, MERGED`.
 
 ### 4.4 Cột mới trên `study_topic`
 
@@ -142,7 +150,27 @@ Lý do dùng cột thay vì tính trong query: nhiều mốc khác nhau cho từ
 
 Đây là nguồn dữ liệu của rotation. `question_set` là tài sản dùng chung (không có `user_id`), nên quan hệ "user này đã dùng bộ nào, lúc nào" phải nằm ở bảng riêng.
 
-### 4.8 Migration
+### 4.8 Bảng mới `skill_subtopic`
+
+| Cột | Kiểu | Ghi chú |
+|---|---|---|
+| `id` | BIGINT PK | |
+| `skill_key` | VARCHAR(100) NOT NULL | `SkillKeys.normalize(skillName)` |
+| `subtopic_key` | VARCHAR(100) NOT NULL | identity, không đổi sau khi tạo |
+| `subtopic_name` | VARCHAR(120) NOT NULL | hiển thị; admin sửa được |
+| `source` | VARCHAR(16) NOT NULL | `ADMIN` / `AI_SUGGESTED` |
+| `status` | VARCHAR(16) NOT NULL DEFAULT `ACTIVE` | `ACTIVE` / `MERGED` |
+| `sort_order` | INT NOT NULL DEFAULT 0 | thứ tự ưu tiên sinh |
+| `created_at` | DATETIME | |
+
+`UNIQUE (skill_key, subtopic_key)`. Index `(skill_key, status, sort_order)`.
+
+Đây là **nguồn duy nhất** của khái niệm "mảng kiến thức". Không có cột `subtopic` thứ hai trên `question_set` — nếu có 2 cột (một cho admin, một cho AI đề xuất) thì sẽ có 2 thước đo coverage không so sánh được. Identity là một; **nguồn gốc là thuộc tính** (`source`).
+
+- `ADMIN`: admin khai báo → là ràng buộc, AI phải chọn trong danh sách.
+- `AI_SUGGESTED`: AI tự đặt nhãn khi skill chưa có taxonomy → chỉ là đề xuất, admin đổi tên hoặc gộp.
+
+### 4.9 Migration
 
 Flyway đang tắt (`flyway.enabled=false`, bảng do `ddl-auto` tạo) nên **không thêm file `.sql` vào `db/migration`**. Cần chạy tay script idempotent trên DB thật:
 
@@ -183,6 +211,24 @@ CREATE TABLE user_set_usage (
     UNIQUE KEY uk_user_set (user_id, set_id),
     KEY idx_user_set_available (user_id, available_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE skill_subtopic (
+    id            BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    skill_key     VARCHAR(100) NOT NULL,
+    subtopic_key  VARCHAR(100) NOT NULL,
+    subtopic_name VARCHAR(120) NOT NULL,
+    source        VARCHAR(16)  NOT NULL,
+    status        VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE',
+    sort_order    INT          NOT NULL DEFAULT 0,
+    created_at    DATETIME     NULL,
+    UNIQUE KEY uk_skill_subtopic (skill_key, subtopic_key),
+    KEY idx_skill_subtopic_list (skill_key, status, sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE question_set
+    ADD COLUMN subtopic_id BIGINT NOT NULL AFTER theme,
+    ADD KEY idx_question_set_subtopic (subtopic_id),
+    ADD CONSTRAINT fk_question_set_subtopic FOREIGN KEY (subtopic_id) REFERENCES skill_subtopic (id);
 ```
 
 ## 5. Chống trùng: 3 lớp
@@ -227,7 +273,7 @@ Lý do: "When should you use X?" và "When should you NOT use X?" chỉ khác 1 
 
 ## 6. Prompt contract
 
-`buildQuestionPrompt` mở rộng, bắt buộc 4 khối:
+`buildQuestionPrompt` mở rộng, bắt buộc 5 khối:
 
 | Khối | Nội dung |
 |---|---|
@@ -235,6 +281,7 @@ Lý do: "When should you use X?" và "When should you NOT use X?" chỉ khác 1 
 | `archetype_quota` | số câu mỗi dạng + định nghĩa từng dạng |
 | `coherence` | "questions revolve around the theme, depth increases progressively" |
 | `exclusions` | tối đa 30 `question_text` đã có trong cell + "do not repeat these concepts" |
+| `coverage` | `target_subtopic` + `existing_concepts` của skill + "chỉ đề xuất concept mới nếu thật sự khác" |
 
 Output JSON thêm trường `archetype` cho mỗi câu. Server validate:
 
@@ -243,7 +290,15 @@ Output JSON thêm trường `archetype` cho mỗi câu. Server validate:
 
 ### 6.1 Theme do AI chọn
 
-Theme sinh **trong cùng 1 call** với câu hỏi (không gọi 2 lần) và trả ở root của JSON output. Prompt truyền vào `skill`, `difficulty`, `scope` và **danh sách theme đã dùng trong cell**.
+Theme **và** `concept` (nhãn subtopic ngắn, 1–4 từ) sinh **trong cùng 1 call** với câu hỏi, trả ở root của JSON output. Prompt truyền vào `skill`, `difficulty`, `scope`, danh sách theme đã dùng trong cell và `existing_concepts` của skill.
+
+Quy tắc chọn `concept`:
+
+| Tình huống | Hành vi |
+|---|---|
+| Skill có subtopic `ADMIN` | Prompt gửi danh sách key, AI **phải chọn 1** trong đó |
+| Skill chưa có subtopic | AI tự đặt nhãn; chấm dứt phân mảnh bằng `existing_concepts` + normalize |
+| Nhãn normalize trùng key đã có | Tái dùng row đó, không tạo mới |
 
 Nếu AI trả theme trùng theme đã có → log WARN và vẫn lưu (không regenerate).
 
@@ -262,9 +317,10 @@ Nếu AI trả theme trùng theme đã có → log WARN và vẫn lưu (không r
 
 ```
 POST /api/v1/admin/question-sets
-  { scope, skillName, difficulty, questionType, language, targetSize, setNames? }
+  { scope, skillName, difficulty, questionType, language, targetSize, subtopicKey?, setNames? }
 → resolve skillKey = SkillKeys.normalize(skillName)      ← PHẢI trùng hàm với acquire
-→ AI chọn theme
+→ chọn subtopic đích (§7.3.1): truyền `subtopicKey` hoặc đề xuất theo quy tắc
+→ AI chọn theme + concept
 → AI sinh targetSize câu theo prompt contract §6
 → persist:
      question_set    1 row
@@ -283,9 +339,9 @@ POST /api/v1/study/generate  (endpoint không đổi)
 
 Bên trong `acquire`:
 
-1. Chọn bộ theo 3 tầng ưu tiên (§7.3). Có → dùng luôn, không gọi AI.
-2. Không có bộ nào trong cell → **tạo set đồng bộ** với `created_by = NULL`, `set_name` tự sinh
-   (`"<Level> <Skill> <n>"` với `n` = số set hiện có của cell + 1, đảm bảo UNIQUE).
+1. Chọn bộ theo 4 tầng ưu tiên (§7.3). Có → dùng luôn, không gọi AI.
+2. Hết bộ + cell chưa đạt trần → **sinh bộ mới** theo subtopic ưu tiên (§7.3.1),
+   `created_by = NULL`, `set_name` tự sinh (`"<Level> <Skill> <n>"` với `n` = số set hiện có của cell + 1).
 3. AI lỗi → ném `AIServiceException` (giữ hành vi hiện tại của `generateQuestions`).
 
 **Gọi AI phải nằm ngoài transaction** — đây là lỗi hiện có cần sửa trong task này:
@@ -312,13 +368,16 @@ Cài đặt: `TransactionTemplate` cho bước 1 và 3; bước 2 nằm ngoài m
 - Subquery đọc `user_set_usage` và lọc `user_id = ?` — trả lời "bộ nào là của user này".
 - Với cách cố định ban đầu, `st.set_id IS NOT NULL` là bắt buộc: nếu subquery trả về `NULL`, `NOT IN` sẽ trả **rỗng toàn bộ** (bẫy kinh điển của SQL). Nay subquery đọc `user_set_usage` (cột NOT NULL) nên bẫy này không còn, nhưng vẫn phải nhớ khi sửa query.
 
-**Loại trừ vĩnh viễn là sai nghiệp vụ** — user phải làm lại được. 3 tầng ưu tiên:
+**Loại trừ vĩnh viễn là sai nghiệp vụ** — user phải làm lại được. Nhưng **sinh mới trước khi cấp lại**:
 
-| Tầng | Điều kiện | Ý nghĩa |
+| Tầng | Điều kiện | Hành động |
 |---|---|---|
-| 1 | không có row trong `user_set_usage` | nội dung hoàn toàn mới |
-| 2 | `available_at IS NOT NULL AND available_at <= now` | đã đủ lâu để làm lại |
-| 3 | còn lại (đang làm dở, hoặc chưa tới hạn) | chỉ dùng khi không còn bộ nào ở tầng 1–2; chọn `available_at` sớm nhất |
+| 1 | có set user chưa từng dùng | cấp (0 chi phí AI) |
+| 2 | hết set, `setCountHiệuDụng < trần` | **sinh bộ mới** (§7.3.1) |
+| 3 | hết set, đạt trần, có set `available_at <= now` | cấp bộ `available_at` cũ nhất |
+| 4 | hết set, đạt trần, tất cả còn cooldown | cấp bộ `available_at` sớm nhất |
+
+Set bị `REJECTED` toàn bộ **không tính** vào `setCountHiệuDụng` — tránh cảnh cell "đầy" nhưng không cấp được câu.
 
 ```sql
 SELECT qs.id
@@ -339,6 +398,28 @@ LIMIT 1
 ```
 
 Cài đặt bằng JPQL/Criteria trong repository, không dùng native query.
+
+Query trên chỉ chạy cho tầng 1, 3, 4 — tầng 2 được quyết định **trước** khi query (§7.3.1).
+
+### 7.3.1 Sinh bộ mới — chọn subtopic
+
+```
+setCountHiệuDụng = số set của cell có ≥1 câu chưa bị REJECTED
+trần              = max(max-sets-per-cell, subtopicCount(ACTIVE) × sets-per-subtopic)
+
+1. Skill có subtopic ACTIVE nguồn ADMIN
+   → chọn subtopic chưa đủ sets-per-subtopic bộ (sort_order ASC)
+   → AI KHÔNG được tự đặt nhãn mới
+2. Skill chưa có subtopic ADMIN
+   → AI đề xuất concept + theme trong cùng 1 call
+   → normalize concept bằng SkillKeys.normalize; trùng key đã có → tái dùng row
+3. Đã cover hết subtopic và setCountHiệuDụng < trần
+   → sinh bộ theme tự do, gắn vào subtopic ít bộ nhất (tăng độ sâu)
+4. setCountHiệuDụng >= trần
+   → không sinh, rơi xuống tầng 3/4
+```
+
+Nhãn AI đặt có `source = AI_SUGGESTED`; admin đổi tên hoặc gộp về subtopic chính thức (§7.9).
 
 Sau khi chọn — ghi **cả 2 nơi**:
 
@@ -422,6 +503,30 @@ new ModuleDef("question-sets", "Bộ câu hỏi", false, Map.of(
 
 Và thêm assertion vào integration test theo đúng pattern hiện có: ADMIN × VIEW ⇒ 200, USER × VIEW ⇒ 403.
 
+### 7.9 Subtopic & coverage
+
+```
+PUT   /api/v1/admin/skills/{skillKey}/subtopics   { subtopics: [{ key, name }] }
+GET   /api/v1/admin/question-sets/coverage?skillKey=
+PATCH /api/v1/admin/subtopics/{id}                { name }      // đổi tên hiển thị
+POST  /api/v1/admin/subtopics/{id}/merge          { targetId }  // gộp nhãn AI về subtopic chính thức
+```
+
+`GET .../coverage` trả:
+
+| subtopic | source | sets | questions | trạng thái |
+|---|---|---|---|---|
+| networking | ADMIN | 2 | 20 | đủ |
+| volumes | ADMIN | 0 | 0 | **MISSING** |
+| "CI pipeline" | AI_SUGGESTED | 1 | 10 | cần admin xem lại |
+
+Quy tắc:
+
+- `subtopic_key` là **identity**, không đổi sau khi tạo (đổi sẽ phá coverage đã đo).
+- Đổi tên chỉ sửa `subtopic_name`.
+- Gộp: repoint `question_set.subtopic_id` sang đích, row nguồn `status = MERGED`.
+- `PUT .../subtopics` chỉ ghi `source = ADMIN`; không xoá row đang được `question_set` tham chiếu.
+
 ## 8. Cấu hình
 
 ```yaml
@@ -436,6 +541,8 @@ study:
     redo-after-days-high-score: 14
     score-low-threshold: 6
     score-high-threshold: 8
+    max-sets-per-cell: 8
+    sets-per-subtopic: 1
     archetype-quota:
       DEFINITION: 2
       COMPARISON: 2
@@ -468,6 +575,7 @@ Unit test offline (harness hiện tại, không cần Docker/MySQL), **phải đ
 | `AdminAddQuestionTest` | thêm câu vào bộ, `review_status = APPROVED`, trùng `content_key` → 409 |
 | `UserRedoSelfServiceTest` | redo bỏ qua cooldown, `available_at` = now |
 | `AdminPermissionMatrixIntegrationTest` (sửa) | module `question-sets`: ADMIN × VIEW ⇒ 200, USER × VIEW ⇒ 403 |
+| `SubtopicCoverageTest` | skill có taxonomy → AI không tạo nhãn mới; trần = subtopic × sets-per-subtopic; coverage đếm đúng `MISSING` |
 | `QuestionPoolServiceImplTest` (sửa) | `acquire` trả nguyên bộ; set thiếu câu → `served < requested` |
 | `StudyProgramServiceImplTest` (mới) | ghi `study_topic.set_id`, bản copy có `content_key = NULL` |
 
@@ -482,6 +590,8 @@ Unit test offline (harness hiện tại, không cần Docker/MySQL), **phải đ
 | AI không tuân quota archetype | trung bình | log WARN, không chặn; admin thấy khi review |
 | 1 user kích hoạt nhiều lần sinh đồng bộ | trung bình | không xử lý trong spec này (D8) |
 | Gọi AI giữ connection của pool | **cao** | gọi AI **ngoài transaction** (§7.2) |
+| AI tự đặt nhãn subtopic bị phân mảnh ("networking" vs "container networking") | trung bình | normalize + `existing_concepts` trong prompt + admin gộp |
+| Admin khai nhiều subtopic hơn trần → chi phí AI tăng | thấp | trần tự nới theo số subtopic (D19), admin thấy ngay trong coverage |
 
 ## 12. Chuẩn bị cho interview (phase 2)
 
