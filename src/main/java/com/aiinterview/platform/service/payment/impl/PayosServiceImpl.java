@@ -45,6 +45,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -108,7 +110,9 @@ public class PayosServiceImpl implements PayosService {
     private int reconcileBatchSize;
 
     @Override
-    @Transactional
+    // Không dùng @Transactional ở đây: nếu gọi payOS lỗi sau khi đã lưu, transaction sẽ
+    // rollback và mất bản ghi -> /return không tìm thấy đơn dù payOS đã tạo lệnh thanh
+    // toán. Mỗi lần save tự commit để webhook/scheduler vẫn có row để đối soát.
     public PayosCreateResponse createPayment(User user, long amount, String description) {
         if (amount <= 0) throw new BadRequestException("Số tiền phải lớn hơn 0");
         requireConfig();
@@ -259,7 +263,14 @@ public class PayosServiceImpl implements PayosService {
         }
 
         PayosTransaction txn = txnRepository.findByOrderCode(orderCode).orElse(null);
-        if (txn == null) return resultPage("error", orderCodeRaw);
+        if (txn == null) {
+            // Bản ghi local có thể đã bị rollback lúc tạo đơn dù payOS đã nhận lệnh thanh
+            // toán. Thử khôi phục từ chính payOS (đã verify chữ ký) thay vì trả lỗi cứng.
+            log.warn("payOS return orderCode={} not found locally, attempting recovery", orderCode);
+            if (recoverMissingTransaction(orderCode)) return resultPage("success", orderCodeRaw);
+            // Chưa xác định được người nhận tiền: để FE tiếp tục đối soát, không chặn ở lỗi.
+            return resultPage("pending", orderCodeRaw);
+        }
         if (txn.getStatus() == PayosStatus.SUCCESS) return resultPage("success", orderCodeRaw);
 
         // Luôn đối soát trực tiếp với payOS thay vì tin query param (có thể thiếu/đổi tên).
@@ -282,8 +293,12 @@ public class PayosServiceImpl implements PayosService {
 
     @Override
     public PayosStatusResponse getPaymentStatus(User user, long orderCode) {
-        PayosTransaction txn = txnRepository.findByOrderCode(orderCode)
-                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy giao dịch payOS"));
+        PayosTransaction txn = txnRepository.findByOrderCode(orderCode).orElse(null);
+        if (txn == null) {
+            recoverMissingTransaction(orderCode);
+            txn = txnRepository.findByOrderCode(orderCode)
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy giao dịch payOS"));
+        }
         if (!txn.getUserId().equals(user.getId())) {
             throw new ForbiddenException("Bạn không có quyền xem giao dịch này");
         }
@@ -306,6 +321,63 @@ public class PayosServiceImpl implements PayosService {
                 .amount(latest.getAmount())
                 .paymentLinkId(latest.getPaymentLinkId())
                 .build();
+    }
+
+    /**
+     * Khôi phục giao dịch khi bản ghi local bị mất (thường do createPayment bị rollback
+     * sau khi payOS đã tạo đơn). Chỉ tin dữ liệu payOS đã verify chữ ký. userId được
+     * lấy từ description do chính backend sinh ra lúc tạo đơn, nên kẻ tấn công không
+     * thể tự gán ví khác. Idempotency key PAYOS-&lt;orderCode&gt; chặn cộng tiền trùng.
+     */
+    private boolean recoverMissingTransaction(long orderCode) {
+        if (isBlank(clientId) || isBlank(apiKey) || isBlank(checksumKey)) return false;
+        PaymentQueryResult result = queryPayment(orderCode);
+        if (result == null || result.status() != PayosStatus.SUCCESS) return false;
+
+        Long userId = extractUserId(result.description());
+        if (userId == null || userRepository.findById(userId).isEmpty()) {
+            log.warn("payOS recover orderCode={} cannot resolve user from description='{}'",
+                    orderCode, result.description());
+            return false;
+        }
+
+        transactionTemplate.executeWithoutResult(ignored -> {
+            PayosTransaction existing = txnRepository.findByOrderCode(orderCode).orElse(null);
+            if (existing != null) {
+                if (existing.getStatus() == PayosStatus.PENDING) {
+                    confirmSuccess(existing, result.paymentLinkId(), result.reference());
+                }
+                return;
+            }
+            PayosTransaction restored = PayosTransaction.builder()
+                    .userId(userId)
+                    .orderCode(orderCode)
+                    .amount(result.amount())
+                    .description(result.description())
+                    .status(PayosStatus.PENDING)
+                    .paymentLinkId(result.paymentLinkId())
+                    .reference(result.reference())
+                    .build();
+            txnRepository.save(restored);
+            confirmSuccess(restored, result.paymentLinkId(), result.reference());
+            log.info("payOS recovered missing orderCode={} userId={} amount={}",
+                    orderCode, userId, result.amount());
+        });
+        return true;
+    }
+
+    /** description lúc tạo đơn: NAPTIEN&lt;id&gt; (legacy, tối đa 2 chữ số) hoặc NAP&lt;id 6 chữ số&gt;. */
+    private Long extractUserId(String description) {
+        if (isBlank(description)) return null;
+        Matcher m = Pattern.compile("^(?:NAPTIEN|NAP)(\\d{1,6})$")
+                .matcher(description.trim().toUpperCase(Locale.ROOT));
+        if (!m.matches()) return null;
+        try {
+            long id = Long.parseLong(m.group(1));
+            return id > 0 ? id : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /** Đánh dấu thành công + cộng ví. Gọi lại nhiều lần vẫn chỉ cộng 1 lần. */
@@ -445,7 +517,8 @@ public class PayosServiceImpl implements PayosService {
                     amount,
                     data.path("id").asText(""),
                     extractReference(data),
-                    rawStatus);
+                    rawStatus,
+                    data.path("description").asText(""));
         } catch (Exception e) {
             log.warn("payOS query orderCode={} error: {}", orderCode, e.getMessage());
             return null;
@@ -632,6 +705,6 @@ public class PayosServiceImpl implements PayosService {
     }
 
     private record PaymentQueryResult(PayosStatus status, long amount, String paymentLinkId,
-                                      String reference, String rawStatus) {
+                                      String reference, String rawStatus, String description) {
     }
 }
