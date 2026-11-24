@@ -36,6 +36,7 @@ Giới hạn đã biết và chấp nhận: **không thể chặn 100% trùng ng
 | D7 | Sinh set **đồng bộ** trong request | chấp nhận 3–10s ở lần đầu/skill |
 | D8 | Hạn mức lượt dùng = tính năng riêng, **ngoài phạm vi spec này** | không đặt cap ở đây |
 | D9 | `acquire` cấp **nguyên bộ**, không trộn câu giữa các bộ | giữ mạch liên kết |
+| D10 | Rotation **3 tầng + cooldown** `redo-after-days` thay vì loại trừ vĩnh viễn | user được làm lại bộ cũ sau cooldown, hoặc khi đã dùng hết bộ |
 
 ### Điều chỉnh so với yêu cầu "bỏ archived"
 
@@ -97,7 +98,7 @@ Ràng buộc: `UNIQUE (skill_key, content_key)`. MySQL cho phép nhiều NULL n�
 
 | Cột | Kiểu | Ghi chú |
 |---|---|---|
-| `set_id` | BIGINT NULL | bộ đã dùng cho topic này — nguồn dữ liệu cho rotation |
+| `set_id` | BIGINT NULL | bộ đã dùng cho topic này — chỉ để truy vết; rotation đọc `user_set_usage` |
 
 ### 4.5 Dữ liệu cũ
 
@@ -107,7 +108,21 @@ Các row `question` đang tồn tại có `set_id = NULL` và **không được 
 
 Tự sinh theo `"<Level> <Skill> <n>"` với `n` = số set hiện có của cell + 1. Có race condition khi 2 request đồng thời → dựa vào `UNIQUE (set_name)`, bắt lỗi và thử lại 1 lần với `n+1`.
 
-### 4.7 Migration
+### 4.7 Bảng mới `user_set_usage`
+
+| Cột | Kiểu | Ghi chú |
+|---|---|---|
+| `id` | BIGINT PK | |
+| `user_id` | BIGINT NOT NULL | |
+| `set_id` | BIGINT NOT NULL, FK → `question_set.id` | |
+| `use_count` | INT NOT NULL DEFAULT 0 | số lần user đã nhận bộ này |
+| `last_used_at` | DATETIME NOT NULL | mốc cho cooldown |
+
+`UNIQUE (user_id, set_id)`.
+
+Đây là nguồn dữ liệu của rotation. `question_set` là tài sản dùng chung (không có `user_id`), nên quan hệ "user này đã dùng bộ nào, lúc nào" phải nằm ở bảng riêng.
+
+### 4.8 Migration
 
 Flyway đang tắt (`flyway.enabled=false`, bảng do `ddl-auto` tạo) nên **không thêm file `.sql` vào `db/migration`**. Cần chạy tay script idempotent trên DB thật:
 
@@ -137,6 +152,16 @@ ALTER TABLE question ADD COLUMN review_status VARCHAR(16) NOT NULL DEFAULT 'AUTO
 CREATE UNIQUE INDEX uk_question_skill_content ON question (skill_key, content_key);
 
 ALTER TABLE study_topic ADD COLUMN set_id BIGINT NULL;
+
+CREATE TABLE user_set_usage (
+    id           BIGINT   NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id      BIGINT   NOT NULL,
+    set_id       BIGINT   NOT NULL,
+    use_count    INT      NOT NULL DEFAULT 0,
+    last_used_at DATETIME NOT NULL,
+    UNIQUE KEY uk_user_set (user_id, set_id),
+    KEY idx_user_set_last_used (user_id, last_used_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ```
 
 ## 5. Chống trùng: 3 lớp
@@ -237,29 +262,53 @@ POST /api/v1/study/generate  (endpoint không đổi)
 
 Bên trong `acquire`:
 
-1. Tìm set chưa dùng cho user (§7.3). Có → dùng luôn, không gọi AI.
-2. Không có → **tạo set đồng bộ** với `created_by = NULL`, `set_name` tự sinh
+1. Chọn bộ theo 3 tầng ưu tiên (§7.3). Có → dùng luôn, không gọi AI.
+2. Không có bộ nào trong cell → **tạo set đồng bộ** với `created_by = NULL`, `set_name` tự sinh
    (`"<Level> <Skill> <n>"` với `n` = số set hiện có của cell + 1, đảm bảo UNIQUE).
 3. AI lỗi → ném `AIServiceException` (giữ hành vi hiện tại của `generateQuestions`).
 
 ### 7.3 Chọn bộ (rotation)
 
+**Vì sao cần subquery:** `question_set` là tài sản **dùng chung**, không có cột `user_id`. Quan hệ "user này đã dùng bộ nào" không nằm trên bộ mà nằm ở bảng `user_set_usage`. Nên phải: lấy danh sách bộ của user từ bảng đó → **loại trừ** khỏi tập bộ của cell.
+
+- `qs.id NOT IN (subquery)` = "bộ nào không nằm trong danh sách bộ user đã dùng".
+- Subquery đọc `user_set_usage` và lọc `user_id = ?` — trả lời "bộ nào là của user này".
+- Với cách cố định ban đầu, `st.set_id IS NOT NULL` là bắt buộc: nếu subquery trả về `NULL`, `NOT IN` sẽ trả **rỗng toàn bộ** (bẫy kinh điển của SQL). Nay subquery đọc `user_set_usage` (cột NOT NULL) nên bẫy này không còn, nhưng vẫn phải nhớ khi sửa query.
+
+**Loại trừ vĩnh viễn là sai nghiệp vụ** — user phải làm lại được. 3 tầng ưu tiên:
+
+| Tầng | Điều kiện | Ý nghĩa |
+|---|---|---|
+| 1 | chưa dùng bao giờ | nội dung hoàn toàn mới |
+| 2 | đã dùng, nhưng `last_used_at < now - redo-after-days` | đủ lâu để làm lại |
+| 3 | đã dùng và còn trong cooldown | chỉ dùng khi không còn bộ nào ở tầng 1–2; chọn bộ lâu nhất |
+
 ```sql
-SELECT qs.id FROM question_set qs
-WHERE qs.skill_key = ? AND qs.difficulty = ? AND qs.question_type = ? AND qs.language = ?
-  AND qs.id NOT IN (
-      SELECT st.set_id FROM study_topic st
-      JOIN study_program sp ON sp.id = st.program_id
-      WHERE sp.user_id = ? AND st.set_id IS NOT NULL)
-ORDER BY qs.times_used ASC, qs.id ASC
+SELECT qs.id
+FROM question_set qs
+LEFT JOIN user_set_usage u ON u.set_id = qs.id AND u.user_id = :userId
+WHERE qs.skill_key = :skillKey
+  AND qs.difficulty = :difficulty
+  AND qs.question_type = :type
+  AND qs.language = :language
+ORDER BY
+  CASE WHEN u.id IS NULL THEN 0
+       WHEN u.last_used_at < :cutoff THEN 1
+       ELSE 2 END,
+  COALESCE(u.last_used_at, '1970-01-01') ASC,
+  qs.times_used ASC,
+  qs.id ASC
 LIMIT 1
 ```
 
-Sau khi chọn:
+`:cutoff = now - redo-after-days`. Cài đặt bằng JPQL/Criteria trong repository, không dùng native query.
+
+Sau khi chọn — ghi **cả 2 nơi**:
 
 ```
-question WHERE set_id = ? AND review_status <> 'REJECTED' ORDER BY archetype, id
-question_set.times_used += 1
+user_set_usage  upsert (user_id, set_id): use_count += 1, last_used_at = now
+question_set    times_used += 1
+question        WHERE set_id = ? AND review_status <> 'REJECTED' ORDER BY archetype, id
 ```
 
 Nếu set còn < `needed` câu do bị `REJECTED` → **trả ít hơn**, không trộn set khác (giữ mạch liên kết). Response trả `requested` / `served`.
@@ -303,6 +352,7 @@ study:
     max-target-size: 20
     existing-text-limit: 30
     auto-create: true
+    redo-after-days: 14
     archetype-quota:
       DEFINITION: 2
       COMPARISON: 2
@@ -330,7 +380,7 @@ Unit test offline (harness hiện tại, không cần Docker/MySQL), **phải đ
 |---|---|
 | `QuestionContentKeyTest` | bỏ stopword, giữ phủ định, synonym, đảo trật tự token ra cùng key |
 | `QuestionSetServiceImplTest` | tạo set, quota lệch, archetype lạ, set_name unique |
-| `QuestionSetRotationTest` | chọn set chưa dùng, `times_used` tăng, hết set → tạo mới |
+| `QuestionSetRotationTest` | 3 tầng ưu tiên, cooldown hết hạn → cấp lại, hết bộ → tạo mới |
 | `QuestionPoolServiceImplTest` (sửa) | `acquire` trả nguyên bộ; set thiếu câu → `served < requested` |
 | `StudyProgramServiceImplTest` (mới) | ghi `study_topic.set_id`, bản copy có `content_key = NULL` |
 
@@ -338,7 +388,8 @@ Unit test offline (harness hiện tại, không cần Docker/MySQL), **phải đ
 
 | Rủi ro | Mức | Giảm thiểu |
 |---|---|---|
-| 2–5% trùng ý ở lần đầu của skill mới | trung bình | admin review hậu kiểm + `REJECTED` |
+| Trùng ý 2–5% **từ bộ thứ 2 trở đi** của một cell | trung bình | `content_key` + `exclusions` + admin `REJECTED` |
+| Bộ **đầu tiên** của skill mới: trùng = 0 theo cấu trúc | thấp | trong cell chưa có bộ nào khác để trùng |
 | Lần đầu/skill chậm 3–10s (sinh đồng bộ) | trung bình | admin tạo trước cho skill phổ biến |
 | Set bị `REJECTED` nhiều → user nhận < 10 câu | thấp | response trả `requested`/`served`, admin bổ sung |
 | AI không tuân quota archetype | trung bình | log WARN, không chặn; admin thấy khi review |
