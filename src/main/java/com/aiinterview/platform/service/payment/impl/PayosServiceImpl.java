@@ -231,6 +231,18 @@ public class PayosServiceImpl implements PayosService {
 
     @Override
     public String handleReturn(Map<String, String> params) {
+        String orderCodeRaw = params == null ? null : params.get("orderCode");
+        try {
+            return handleReturnInternal(params == null ? Map.of() : params);
+        } catch (Exception e) {
+            // Return URL không bao giờ được trả 5xx cho payOS/FE. Lỗi được log lại,
+            // giao dịch vẫn để PENDING để webhook/scheduler tiếp tục đối soát.
+            log.error("payOS return failed orderCode={} params={}", orderCodeRaw, params, e);
+            return resultPage("error", orderCodeRaw);
+        }
+    }
+
+    private String handleReturnInternal(Map<String, String> params) {
         String orderCodeRaw = params.get("orderCode");
         String status = params.get("status");
 

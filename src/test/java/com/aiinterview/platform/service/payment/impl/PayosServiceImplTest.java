@@ -21,6 +21,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Regression test cho lỗi "thanh toán xong không cộng tiền / không về server chính":
@@ -141,6 +142,24 @@ class PayosServiceImplTest {
         String signature = ReflectionTestUtils.invokeMethod(service, "hmacSHA256", CHECKSUM_KEY, signable);
 
         assertThat(signature).isEqualTo("412e915d2871504ed31be63c8f62a149a4410d34c4c42affc9006ef9917eaa03");
+    }
+
+    @Test
+    void returnNeverThrowsServerErrorWhenRepositoryFails() {
+        PayosTransactionRepository txnRepository = mock(PayosTransactionRepository.class);
+        when(txnRepository.findByOrderCode(123L)).thenThrow(new RuntimeException("db down"));
+        PayosServiceImpl service = new PayosServiceImpl(
+                txnRepository,
+                mock(WalletService.class),
+                mock(UserRepository.class),
+                new ObjectMapper(),
+                new RestTemplateBuilder(),
+                mock(PlatformTransactionManager.class));
+        ReflectionTestUtils.setField(service, "frontendUrl", "https://app.example.com");
+
+        String url = service.handleReturn(Map.of("orderCode", "123", "status", "PAID"));
+
+        assertThat(url).isEqualTo("https://app.example.com/payment/payos/result?status=error&orderCode=123");
     }
 
     private PropertySourcesPropertyResolver resolverFor(Map<String, Object> environment) throws Exception {
