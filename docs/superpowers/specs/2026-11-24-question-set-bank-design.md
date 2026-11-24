@@ -673,19 +673,16 @@ Hai vị trí cùng cần "Docker mức basic" thì dùng **chung** một bộ. 
 
 Kết quả: mọi thiết kế ở §4 đã đủ cho interview, không phải migrate cột.
 
-### 12.2 Bảng mới `position_skill` (phase 2)
+### 12.2 Bảng `position_required_skill` (đã có — chỉ thêm cột ở phase 2)
 
-| Cột | Kiểu | Ghi chú |
+Repo đã có `model/entity/PositionRequiredSkill.java` với `position_id`, `skill_name`, `skill_key`. Phase 2 chỉ cần thêm 2 cột:
+
+| Cột thêm | Kiểu | Ghi chú |
 |---|---|---|
-| `id` | BIGINT PK | |
-| `position_id` | BIGINT NOT NULL, FK → `position.id` | |
-| `skill_key` | VARCHAR(100) NOT NULL | `SkillKeys.normalize(skillName)` |
 | `weight` | INT NOT NULL DEFAULT 1 | trọng số phân bổ câu |
 | `difficulty_floor` | VARCHAR(20) NULL | mức tối thiểu cho skill này |
 
-`UNIQUE (position_id, skill_key)`.
-
-Nguồn dữ liệu: admin gán qua `PUT /api/v1/admin/positions/{id}/skills` (phase 2), hoặc AI đề xuất rồi admin sửa.
+**Không tạo bảng `position_skill` mới.** Nguồn dữ liệu: admin gán qua `PUT /api/v1/admin/positions/{id}/skills` (phase 2), hoặc AI đề xuất rồi admin sửa.
 
 **Không** lấy từ `study_topic.skill_tag`: đó là kết quả AI chọn cho từng user, không tất định, và chỉ có sau khi user đã học.
 
@@ -716,7 +713,7 @@ Rotation của interview dùng chung `user_set_usage` — không cần bảng ri
 
 ### 12.5 Không đụng trong phase 1
 
-`MockInterviewServiceImpl`, bảng `interview_session_question`, `position_skill`, API gán skill cho position.
+`MockInterviewServiceImpl`, bảng `interview_session_question`, `difficulty_floor`/`weight` của `position_required_skill`, API gán skill cho position.
 
 ## 13. Study log & đánh giá
 
