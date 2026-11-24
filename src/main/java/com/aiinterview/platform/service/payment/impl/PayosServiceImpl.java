@@ -250,24 +250,21 @@ public class PayosServiceImpl implements PayosService {
         if (txn == null) return resultPage("error", orderCodeRaw);
         if (txn.getStatus() == PayosStatus.SUCCESS) return resultPage("success", orderCodeRaw);
 
-        if ("PAID".equalsIgnoreCase(status)) {
-            PaymentQueryResult result = queryPayment(orderCode);
-            if (result != null && result.status() == PayosStatus.SUCCESS) {
-                confirmSuccessLocked(orderCode, result);
-                return resultPage("success", orderCodeRaw);
-            }
-            if (result != null && result.status() == PayosStatus.FAILED) {
-                markFailedLocked(orderCode);
-                return resultPage("failed", orderCodeRaw);
-            }
-            // Query chưa thấy PAID (payOS có độ trễ): để webhook/scheduler xác nhận.
-            return resultPage("pending", orderCodeRaw);
+        // Luôn đối soát trực tiếp với payOS thay vì tin query param (có thể thiếu/đổi tên).
+        PaymentQueryResult result = queryPayment(orderCode);
+        if (result != null && result.status() == PayosStatus.SUCCESS) {
+            confirmSuccessLocked(orderCode, result);
+            return resultPage("success", orderCodeRaw);
         }
-        if ("PENDING".equalsIgnoreCase(status) || "PROCESSING".equalsIgnoreCase(status)) {
-            return resultPage("pending", orderCodeRaw);
+        if (result != null && result.status() == PayosStatus.FAILED) {
+            markFailedLocked(orderCode);
+            return resultPage("failed", orderCodeRaw);
         }
-
-        // Status lạ: không đánh failed oan, để webhook/scheduler đối soát tiếp.
+        if ("FAILED".equalsIgnoreCase(status) || "EXPIRED".equalsIgnoreCase(status)) {
+            markFailedLocked(orderCode);
+            return resultPage("failed", orderCodeRaw);
+        }
+        // Query chưa thấy PAID (payOS có độ trễ): để webhook/scheduler xác nhận.
         return resultPage("pending", orderCodeRaw);
     }
 
@@ -319,7 +316,13 @@ public class PayosServiceImpl implements PayosService {
     private void confirmSuccessLocked(long orderCode, PaymentQueryResult result) {
         transactionTemplate.executeWithoutResult(ignored -> {
             PayosTransaction txn = txnRepository.findByOrderCodeForUpdate(orderCode).orElse(null);
-            if (txn != null) confirmSuccess(txn, result.paymentLinkId(), result.reference());
+            if (txn == null) return;
+            if (result.amount() != txn.getAmount()) {
+                log.warn("payOS query orderCode={} amount mismatch: provider={} txn={}",
+                        orderCode, result.amount(), txn.getAmount());
+                return;
+            }
+            confirmSuccess(txn, result.paymentLinkId(), result.reference());
         });
     }
 
@@ -395,26 +398,39 @@ public class PayosServiceImpl implements PayosService {
                 return null;
             }
             JsonNode data = root.path("data");
+            if (!data.isObject()) {
+                log.warn("payOS query orderCode={} missing data object", orderCode);
+                return null;
+            }
+
             String signature = root.path("signature").asText(null);
-            if (!isBlank(signature)
-                    && !constantEquals(hmacSHA256(checksumKey, signable(data)), signature)) {
+            if (isBlank(signature)
+                    || !constantEquals(hmacSHA256(checksumKey, signable(data)), signature)) {
                 log.warn("payOS query orderCode={} signature mismatch", orderCode);
                 return null;
             }
+
             long returnedOrderCode = data.path("orderCode").asLong(0L);
             if (returnedOrderCode != 0L && returnedOrderCode != orderCode) {
                 log.warn("payOS query returned orderCode={} for requested {}", returnedOrderCode, orderCode);
                 return null;
             }
+            long amount = data.path("amount").asLong(0L);
+            if (amount <= 0) {
+                log.warn("payOS query orderCode={} invalid amount={}", orderCode, amount);
+                return null;
+            }
 
             String rawStatus = data.path("status").asText("");
             PayosStatus status = switch (rawStatus.toUpperCase(Locale.ROOT)) {
-                case "PAID" -> PayosStatus.SUCCESS;
+                case "PAID", "SUCCESS", "SUCCEEDED", "COMPLETED" -> PayosStatus.SUCCESS;
                 case "CANCELLED", "CANCELED", "EXPIRED", "FAILED" -> PayosStatus.FAILED;
                 default -> PayosStatus.PENDING;
             };
+            log.info("payOS query orderCode={} status={} amount={}", orderCode, rawStatus, amount);
             return new PaymentQueryResult(
                     status,
+                    amount,
                     data.path("id").asText(""),
                     extractReference(data),
                     rawStatus);
@@ -521,9 +537,12 @@ public class PayosServiceImpl implements PayosService {
         return s.length() > 9 ? s.substring(0, 9) : s;
     }
 
-    /** Sắp xếp key alphabetically, value null => "". */
+    /**
+     * Sắp xếp key alphabetically. Ở top-level mọi scalar thành text, null => "" theo payOS;
+     * bên trong object/list (transactions[]) phải giữ null/number/bool để Jackson serialize đúng JSON.
+     */
     private String signable(JsonNode node) {
-        Object sorted = toSortedValue(node);
+        Object sorted = toSortedValue(node, false);
         @SuppressWarnings("unchecked")
         TreeMap<String, Object> map = (TreeMap<String, Object>) sorted;
         return map.entrySet().stream()
@@ -531,22 +550,26 @@ public class PayosServiceImpl implements PayosService {
                 .collect(Collectors.joining("&"));
     }
 
-    private Object toSortedValue(JsonNode node) {
+    private Object toSortedValue(JsonNode node, boolean nested) {
         if (node.isObject()) {
             TreeMap<String, Object> map = new TreeMap<>();
             Iterator<Map.Entry<String, JsonNode>> it = node.fields();
             while (it.hasNext()) {
                 Map.Entry<String, JsonNode> e = it.next();
-                map.put(e.getKey(), toSortedValue(e.getValue()));
+                map.put(e.getKey(), toSortedValue(e.getValue(), true));
             }
             return map;
         }
         if (node.isArray()) {
             List<Object> list = new ArrayList<>();
-            node.forEach(child -> list.add(toSortedValue(child)));
+            node.forEach(child -> list.add(toSortedValue(child, true)));
             return list;
         }
-        if (node.isNull()) return "";
+        if (node.isNull()) return nested ? null : "";
+        // Bên trong JSON (transactions[]) phải giữ kiểu number/bool để Jackson serialize đúng.
+        // Ở top-level payOS cần dạng key=value nên mọi scalar đều thành text.
+        if (nested && node.isNumber()) return node.numberValue();
+        if (nested && node.isBoolean()) return node.booleanValue();
         return node.asText();
     }
 
@@ -596,6 +619,7 @@ public class PayosServiceImpl implements PayosService {
         }
     }
 
-    private record PaymentQueryResult(PayosStatus status, String paymentLinkId, String reference, String rawStatus) {
+    private record PaymentQueryResult(PayosStatus status, long amount, String paymentLinkId,
+                                      String reference, String rawStatus) {
     }
 }
