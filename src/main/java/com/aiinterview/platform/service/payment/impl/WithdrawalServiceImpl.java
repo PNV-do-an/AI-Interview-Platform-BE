@@ -31,7 +31,8 @@ public class WithdrawalServiceImpl implements WithdrawalService {
         if (amount < MIN_WITHDRAWAL) throw new BadRequestException("So tien rut toi thieu " + MIN_WITHDRAWAL);
         long total = amount + FEE;
         Wallet w = walletService.getOrCreateWallet(mentor);
-        if (w.getAvailableBalance() < total) throw new BadRequestException("So du khong du");
+        long available = w.getAvailableBalance() == null ? 0L : w.getAvailableBalance();
+        if (available < total) throw new BadRequestException("So du khong du");
         // deduct immediately
         walletService.debitAvailable(mentor, total, "WITHDRAWAL", "WITHDRAWAL", null, "WD-REQ-" + System.nanoTime(),
                 "Yeu cau rut tien");
