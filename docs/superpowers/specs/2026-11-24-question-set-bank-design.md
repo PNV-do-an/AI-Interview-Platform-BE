@@ -40,6 +40,9 @@ Giới hạn đã biết và chấp nhận: **không thể chặn 100% trùng ng
 | D11 | Cooldown **thích ứng theo điểm** đánh giá của user | điểm thấp → làm lại sớm; điểm cao → giãn ra |
 | D12 | User **chủ động làm lại** bộ bất kỳ, bỏ qua cooldown | chức năng riêng của user, không cần admin |
 | D13 | Admin **thêm câu thủ công** vào bộ | bù khi bộ thiếu câu do `REJECTED` |
+| D14 | Set khoá theo **skill**, không gắn `position_id` | cùng skill dùng lại được cho nhiều position |
+| D15 | Interview **ghép nhiều set** theo `position_skill`, không sinh set riêng | tận dụng bộ đã có, chỉ lấy subset |
+| D16 | Thêm module `question-sets` vào permission matrix | matrix là code + test gọi HTTP thật |
 
 ### Điều chỉnh so với yêu cầu "bỏ archived"
 
@@ -285,6 +288,15 @@ Bên trong `acquire`:
    (`"<Level> <Skill> <n>"` với `n` = số set hiện có của cell + 1, đảm bảo UNIQUE).
 3. AI lỗi → ném `AIServiceException` (giữ hành vi hiện tại của `generateQuestions`).
 
+**Gọi AI phải nằm ngoài transaction** — đây là lỗi hiện có cần sửa trong task này:
+
+- `generateProgram` là `@Transactional` → giữ 1 connection của pool suốt thời gian chờ AI (3–10s). Pool mặc định 10 → 10 request đồng thời là các API khác cũng bị chặn.
+- Đồng bộ với user **không** có nghĩa là phải giữ transaction. Tách thành 3 bước:
+  1. TX ngắn: đọc cell + rotation + ghi `question_set` rỗng (hoặc đọc set có sẵn).
+  2. **Ngoài TX**: gọi AI sinh câu.
+  3. TX ngắn: ghi `question` + cập nhật `user_set_usage`.
+- Cài đặt: dùng `TransactionTemplate` cho 2 bước ngắn, hoặc tách bean gọi AI với `@Transactional(propagation = NOT_SUPPORTED)`.
+
 ### 7.3 Chọn bộ (rotation)
 
 **Vì sao cần subquery:** `question_set` là tài sản **dùng chung**, không có cột `user_id`. Quan hệ "user này đã dùng bộ nào" không nằm trên bộ mà nằm ở bảng `user_set_usage`. Nên phải: lấy danh sách bộ của user từ bảng đó → **loại trừ** khỏi tập bộ của cell.
@@ -386,6 +398,23 @@ GROUP BY skill_key, content_key
 HAVING COUNT(DISTINCT set_id) > 1
 ```
 
+### 7.8 Permission matrix
+
+`AdminPermissionServiceImpl.MODULES` là **code**, không phải data (spec 006) — matrix chỉ mô tả các `@PreAuthorize` thật, và `AdminPermissionMatrixIntegrationTest` gọi HTTP thật để phát hiện lệch.
+
+Phải thêm 1 module:
+
+```java
+new ModuleDef("question-sets", "Bộ câu hỏi", false, Map.of(
+        "VIEW",     roles(Role.ROLE_ADMIN),
+        "CREATE",   roles(Role.ROLE_ADMIN),
+        "UPDATE",   roles(Role.ROLE_ADMIN),   // PATCH reviewStatus, POST thêm câu
+        "DELETE",   roles(),
+        "APPROVE",  roles(Role.ROLE_ADMIN)))
+```
+
+Và thêm assertion vào integration test theo đúng pattern hiện có: ADMIN × VIEW ⇒ 200, USER × VIEW ⇒ 403.
+
 ## 8. Cấu hình
 
 ```yaml
@@ -431,6 +460,7 @@ Unit test offline (harness hiện tại, không cần Docker/MySQL), **phải đ
 | `SetCooldownTest` | điểm TB < 6 → 1 ngày; 6–8 → 4 ngày; ≥ 8 → 14 ngày; chưa trả lời → 4 ngày |
 | `AdminAddQuestionTest` | thêm câu vào bộ, `review_status = APPROVED`, trùng `content_key` → 409 |
 | `UserRedoSelfServiceTest` | redo bỏ qua cooldown, `available_at` = now |
+| `AdminPermissionMatrixIntegrationTest` (sửa) | module `question-sets`: ADMIN × VIEW ⇒ 200, USER × VIEW ⇒ 403 |
 | `QuestionPoolServiceImplTest` (sửa) | `acquire` trả nguyên bộ; set thiếu câu → `served < requested` |
 | `StudyProgramServiceImplTest` (mới) | ghi `study_topic.set_id`, bản copy có `content_key = NULL` |
 
@@ -444,3 +474,57 @@ Unit test offline (harness hiện tại, không cần Docker/MySQL), **phải đ
 | Set bị `REJECTED` nhiều → user nhận < 10 câu | thấp | response trả `requested`/`served`, admin bổ sung |
 | AI không tuân quota archetype | trung bình | log WARN, không chặn; admin thấy khi review |
 | 1 user kích hoạt nhiều lần sinh đồng bộ | trung bình | không xử lý trong spec này (D8) |
+| Gọi AI giữ connection của pool | **cao** | gọi AI **ngoài transaction** (§7.2) |
+
+## 12. Chuẩn bị cho interview (phase 2)
+
+### 12.1 Nguyên tắc: set khoá theo skill, không theo position
+
+Hai vị trí cùng cần "Docker mức basic" thì dùng **chung** một bộ. Vì vậy `question_set` **không có** `position_id`. Position chỉ quyết định **tập skill nào** và **trọng số** của từng skill.
+
+Kết quả: mọi thiết kế ở §4 đã đủ cho interview, không phải migrate cột.
+
+### 12.2 Bảng mới `position_skill` (phase 2)
+
+| Cột | Kiểu | Ghi chú |
+|---|---|---|
+| `id` | BIGINT PK | |
+| `position_id` | BIGINT NOT NULL, FK → `position.id` | |
+| `skill_key` | VARCHAR(100) NOT NULL | `SkillKeys.normalize(skillName)` |
+| `weight` | INT NOT NULL DEFAULT 1 | trọng số phân bổ câu |
+| `difficulty_floor` | VARCHAR(20) NULL | mức tối thiểu cho skill này |
+
+`UNIQUE (position_id, skill_key)`.
+
+Nguồn dữ liệu: admin gán qua `PUT /api/v1/admin/positions/{id}/skills` (phase 2), hoặc AI đề xuất rồi admin sửa.
+
+**Không** lấy từ `study_topic.skill_tag`: đó là kết quả AI chọn cho từng user, không tất định, và chỉ có sau khi user đã học.
+
+### 12.3 Ghép một buổi interview
+
+```
+input: positionId, difficulty, totalQuestions (vd 25), language
+1. position_skill → danh sách (skill_key, weight), lọc difficulty_floor <= difficulty
+2. phân bổ: N_i = round(total * w_i / sum(w)); làm tròn dư dồn về skill weight cao nhất
+3. mỗi skill: chọn 1 set bằng rotation §7.3 với scope = INTERVIEW, cùng cell
+            → không đủ set thì tạo mới (đồng bộ như §7.2)
+4. trong set: chọn N_i câu theo archetype quota, ưu tiên câu chưa dùng cho user
+5. ghi interview_session_question(session_id, question_id)
+```
+
+Thiếu bộ cho một skill → hạ `N_i` và bù sang skill kế tiếp; vẫn thiếu → giảm `totalQuestions` và trả `requested`/`served` như study.
+
+Rotation của interview dùng chung `user_set_usage` — không cần bảng riêng.
+
+### 12.4 Phase 1 phải làm sẵn để phase 2 không phải migrate
+
+| Việc | Vì sao |
+|---|---|
+| `question_set.scope` có `INTERVIEW` | chốt enum ngay |
+| `question.archetype` ghi cho mọi câu thuộc set | interview lọc theo archetype |
+| `set_name` cho phép `Interview Backend Intern` | admin review |
+| `user_set_usage` không gắn scope | dùng chung cho cả hai |
+
+### 12.5 Không đụng trong phase 1
+
+`MockInterviewServiceImpl`, bảng `interview_session_question`, `position_skill`, API gán skill cho position.
