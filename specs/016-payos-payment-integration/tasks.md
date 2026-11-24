@@ -20,4 +20,4 @@
 ## Phase 4: Verification
 - [x] T012 `mvn -o test-compile` → BUILD SUCCESS
 - [x] T013 `mvn -o -Dtest=OrderServiceImplTest test` → 14/14 pass
-- [ ] T014 End-to-end with real payOS credentials (needs user-provided keys + public webhook URL)
+- [x] T014 End-to-end with real payOS credentials: create link OK, query-response signature matches payOS, replayed webhook credits once, bad signature rejected
