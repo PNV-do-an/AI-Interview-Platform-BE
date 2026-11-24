@@ -290,12 +290,19 @@ Bên trong `acquire`:
 
 **Gọi AI phải nằm ngoài transaction** — đây là lỗi hiện có cần sửa trong task này:
 
-- `generateProgram` là `@Transactional` → giữ 1 connection của pool suốt thời gian chờ AI (3–10s). Pool mặc định 10 → 10 request đồng thời là các API khác cũng bị chặn.
-- Đồng bộ với user **không** có nghĩa là phải giữ transaction. Tách thành 3 bước:
-  1. TX ngắn: đọc cell + rotation + ghi `question_set` rỗng (hoặc đọc set có sẵn).
-  2. **Ngoài TX**: gọi AI sinh câu.
-  3. TX ngắn: ghi `question` + cập nhật `user_set_usage`.
-- Cài đặt: dùng `TransactionTemplate` cho 2 bước ngắn, hoặc tách bean gọi AI với `@Transactional(propagation = NOT_SUPPORTED)`.
+- `@Transactional` **không** giữ phiên AI. Nó chỉ giữ **1 JDBC connection** của pool (mặc định 10) + row lock. Gọi Gemini là HTTP ra ngoài, không liên quan DB.
+- Giữ connection suốt 3–10s chờ AI là lãng phí: 10 request đồng thời là mọi API khác cũng bị chặn.
+- Transaction **vẫn cần** cho bước ghi (rollback topic + bản copy khi lỗi) — chỉ không được bọc cả đoạn chờ AI.
+
+Thứ tự mới (không tạo set rỗng, nên **không cần bù trừ**):
+
+1. TX ngắn: rotation (§7.3). Có set → đọc câu, cập nhật usage, xong. **Không gọi AI.**
+2. Chưa có set → **không ghi gì** → gọi AI ngoài TX. AI lỗi ⇒ DB sạch, không cần rollback gì.
+3. TX ngắn: tạo `question_set` + `question` + `study_topic` + bản copy trong **một** lần ghi → rollback vẫn nguyên vẹn như hiện tại.
+
+Cài đặt: `TransactionTemplate` cho bước 1 và 3; bước 2 nằm ngoài mọi transaction.
+
+**Race (2 user cùng cell, cùng lúc chưa có set):** cả hai gọi AI → 2 set. `UNIQUE (skill_key, content_key)` làm request sau fail ở bước 3 → bắt `DataIntegrityViolationException`, chạy lại rotation để dùng set của request thắng. Hệ quả: tốn 1 lần AI dư, dữ liệu vẫn đúng.
 
 ### 7.3 Chọn bộ (rotation)
 
