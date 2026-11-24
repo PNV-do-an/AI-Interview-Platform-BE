@@ -46,6 +46,10 @@ Giới hạn đã biết và chấp nhận: **không thể chặn 100% trùng ng
 | D17 | **Mọi bộ** đều có subtopic, kể cả bộ AI tự đặt nhãn | đo coverage được cho toàn bộ bank |
 | D18 | `skill_subtopic` là **một** bảng, phân biệt bằng `source` | một identity, không phải hai thước đo |
 | D19 | Trần hiệu dụng = `max(max-sets-per-cell, subtopicCount × sets-per-subtopic)` | tránh trần chặn coverage |
+| D20 | Giữ `UNIQUE (topic_id, question_id)` trên `study_answer` | chỉ thêm 2 cột, không đụng `updateProgress` / `unseenBy` |
+| D21 | Lưu kết quả chấm AI vào `ai_evaluation` | hiện chỉ lưu `score`, feedback bị mất |
+| D22 | MCQ chấm local, chỉ ESSAY gọi AI | giảm mạnh chi phí: 1 program = 50 lần chấm |
+| D23 | Đánh giá tổng: số liệu tính local, nhận xét AI lưu cache | 1 AI call/program thay vì mỗi lần xem |
 
 ### Điều chỉnh so với yêu cầu "bỏ archived"
 
@@ -241,6 +245,14 @@ ALTER TABLE question_set
     ADD COLUMN subtopic_id BIGINT NOT NULL AFTER theme,
     ADD KEY idx_question_set_subtopic (subtopic_id),
     ADD CONSTRAINT fk_question_set_subtopic FOREIGN KEY (subtopic_id) REFERENCES skill_subtopic (id);
+
+ALTER TABLE study_answer
+    ADD COLUMN ai_evaluation TEXT NULL,
+    ADD COLUMN graded_at     DATETIME NULL;
+
+ALTER TABLE study_program
+    ADD COLUMN ai_summary    TEXT NULL,
+    ADD COLUMN ai_summary_at DATETIME NULL;
 ```
 
 ## 5. Chống trùng: 3 lớp
@@ -589,6 +601,8 @@ Unit test offline (harness hiện tại, không cần Docker/MySQL), **phải đ
 | `UserRedoSelfServiceTest` | redo bỏ qua cooldown, `available_at` = now |
 | `AdminPermissionMatrixIntegrationTest` (sửa) | module `question-sets`: ADMIN × VIEW ⇒ 200, USER × VIEW ⇒ 403 |
 | `SubtopicCoverageTest` | skill có taxonomy → AI không tạo nhãn mới; trần = subtopic × sets-per-subtopic; coverage đếm đúng `MISSING` |
+| `AnswerGradingFlowTest` | MCQ không gọi AI; ESSAY gọi AI ngoài TX; `ai_evaluation` được ghi |
+| `ProgramSummaryTest` | số liệu bySkill/byArchetype đúng; cache stale khi có answer mới |
 | `QuestionPoolServiceImplTest` (sửa) | `acquire` trả nguyên bộ; set thiếu câu → `served < requested` |
 | `StudyProgramServiceImplTest` (mới) | ghi `study_topic.set_id`, bản copy có `content_key = NULL` |
 
@@ -658,3 +672,124 @@ Rotation của interview dùng chung `user_set_usage` — không cần bảng ri
 ### 12.5 Không đụng trong phase 1
 
 `MockInterviewServiceImpl`, bảng `interview_session_question`, `position_skill`, API gán skill cho position.
+
+## 13. Study log & đánh giá
+
+### 13.1 Schema thêm
+
+| Bảng | Cột | Kiểu | Nội dung |
+|---|---|---|---|
+| `study_answer` | `ai_evaluation` | TEXT (JSON) | `feedback`, `modelAnswer`, `strengths[]`, `improvements[]` |
+| `study_answer` | `graded_at` | DATETIME | thời điểm chấm |
+| `study_program` | `ai_summary` | TEXT (JSON) | `level`, `strengths[]`, `gaps[]`, `nextSteps[]` |
+| `study_program` | `ai_summary_at` | DATETIME | thời điểm sinh nhận xét tổng |
+
+Dùng TEXT + `ObjectMapper` như `question.options`, không thêm cột rời cho từng trường.
+
+Giữ `UNIQUE (topic_id, question_id)`: log hiển thị **lần trả lời cuối** + `attempt_count`, không giữ từng lần thử → không phải sửa `updateProgress` và subquery `unseenBy`.
+
+### 13.2 Luồng chấm một câu
+
+```
+1. TX ngắn: kiểm tra topic thuộc user + câu thuộc topic + answer không rỗng/không vượt độ dài
+2. MCQ  → chấm local bằng correct_answer, KHÔNG gọi AI
+   ESSAY → gọi AI **ngoài transaction**
+3. TX ngắn: ghi study_answer (answer, score, is_correct, ai_evaluation, graded_at)
+            + updateProgress + tính available_at (§4.7)
+```
+
+Bắt buộc tách AI ra ngoài TX như §7.2: `submitStudyAnswer` hiện gọi `evaluateAnswer` bên trong `@Transactional`.
+
+### 13.3 API & cấu trúc trả về
+
+```
+GET /api/v1/study/history?page=
+GET /api/v1/study/programs/{id}/summary
+GET /api/v1/study/programs/{id}/answers?topicId=
+```
+
+**History** — 1 dòng/program:
+
+```json
+{ "id": 1, "title": "Backend Intern", "status": "IN_PROGRESS",
+  "skillCount": 3, "totalQuestions": 30, "answered": 12,
+  "avgScore": 6.4, "createdAt": "...", "completedAt": null }
+```
+
+**Summary** — đánh giá tổng, số liệu local + nhận xét AI:
+
+```json
+{ "programId": 1,
+  "stats": {
+    "totalQuestions": 30, "answered": 12, "avgScore": 6.4,
+    "bySkill":     [ { "skillName": "docker", "answered": 10, "avgScore": 7.1 } ],
+    "byArchetype": [ { "archetype": "APPLICATION", "answered": 4, "avgScore": 4.5 } ]
+  },
+  "aiSummary": {
+    "level": "INTERMEDIATE",
+    "strengths": ["..."],
+    "gaps": ["..."],
+    "nextSteps": [ { "skillName": "docker", "subtopicKey": "volumes", "reason": "..." } ],
+    "generatedAt": "..."
+  }
+}
+```
+
+- `stats` luôn tính từ DB, không phụ thuộc AI → không bao giờ sai/lệch.
+- `nextSteps` trỏ về subtopic yếu hoặc chưa cover → nối trực tiếp với §7.9.
+
+**Answers** — nhóm theo topic:
+
+```json
+[ { "topicId": 7, "title": "Docker networking", "skillName": "docker",
+    "difficulty": "BEGINNER", "setName": "Basic Docker 2", "theme": "...",
+    "questions": [
+      { "questionId": 31, "questionText": "...", "archetype": "DEFINITION",
+        "userAnswer": "...", "score": 7.0, "isCorrect": true,
+        "feedback": "...", "modelAnswer": "...",
+        "strengths": ["..."], "improvements": ["..."],
+        "attemptCount": 2, "submittedAt": "..." }
+    ] } ]
+```
+
+Câu chưa trả lời vẫn xuất hiện với `userAnswer = null`, `score = null`.
+
+### 13.4 Prompt hợp đồng — chấm từng câu
+
+```
+input : question, expectedAnswer, explanation, userAnswer, language
+output: { score 0-10, is_correct, feedback, model_answer, strengths[], improvements[] }
+```
+
+| Quy tắc | Chi tiết |
+|---|---|
+| Thang điểm | 0–3 sai bản chất \| 4–6 thiếu ý chính \| 7–8 đủ ý \| 9–10 đủ + ví dụ/so sánh |
+| `feedback` | 2–4 câu, chỉ nêu đúng/sai và thiếu gì; không khen chung chung |
+| `model_answer` | tách khỏi `feedback` để FE hiển thị riêng |
+| Ngôn ngữ | theo ngôn ngữ câu hỏi |
+| Bắt buộc | hiện `buildEvaluationPrompt` **không** truyền `questionExplanation` → phải bổ sung |
+
+### 13.5 Prompt hợp đồng — đánh giá tổng
+
+Gọi 1 lần khi user mở summary, nếu cache stale:
+
+```
+input : danh sách (skill, subtopic, archetype, score) của các câu đã trả lời
+output: { level, strengths[], gaps[], next_steps[{ skill, subtopic, reason }] }
+```
+
+| Quy tắc | Chi tiết |
+|---|---|
+| Chỉ dựa trên dữ liệu truyền vào | không bịa nội dung user chưa học |
+| `gaps` | phải gắn với skill/subtopic cụ thể, không viết chung chung |
+| `level` | suy từ avgScore + độ phủ archetype |
+| Không đủ dữ liệu | `answered < 3` → không gọi AI, trả `aiSummary = null` kèm thông báo |
+
+### 13.6 Cache và invalidate
+
+```
+stale  ⟺  ai_summary_at IS NULL
+       OR  max(study_answer.submitted_at của program) > ai_summary_at
+```
+
+Không cần thêm cột đếm: so mốc thời gian với answer mới nhất là đủ. Chỉ 1 AI call cho mỗi lần dữ liệu thực sự thay đổi.
