@@ -1,9 +1,9 @@
 # Tasks: payOS Payment Integration
 
-## Phase 1: Remove old gateways
-- [x] T001 Remove ZaloPay controller/service/DTO/entity/repository/enum/spec
-- [x] T002 Remove MoMo controller/service/DTO/entity/repository/enum/config
-- [x] T003 Replace `ZALOPAY_TOPUP`/`MOMO_TOPUP` with `PAYOS_TOPUP` in `WalletTxType`
+## Phase 1: Remove legacy gateways
+- [x] T001 Remove legacy gateway controllers/services/DTOs/entities/repositories/enums/specs
+- [x] T002 Remove legacy gateway config blocks
+- [x] T003 Set `PAYOS_TOPUP` as the only gateway wallet type in `WalletTxType`
 - [x] T004 Update order test payment method label to `PAYOS`
 
 ## Phase 2: payOS model & config

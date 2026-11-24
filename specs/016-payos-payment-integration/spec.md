@@ -3,7 +3,7 @@
 **Feature Branch**: `016-payos-payment-integration`  
 **Created**: 2026-11-24  
 **Status**: Draft  
-**Input**: User description: "Bỏ thanh toán bằng ZaloPay và MoMo, dùng payOS cho nạp ví."
+**Input**: User description: "Chuyển sang dùng payOS cho nạp ví."
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -49,7 +49,7 @@ As a user returning from checkout, backend queries payOS `GET /v2/payment-reques
 - **FR-005**: Expose public `POST /api/v1/payment/payos/webhook`; verify signature over sorted `data` fields (null → `""`).
 - **FR-006**: Expose public `GET /api/v1/payment/payos/return` and `/cancel`, 302 to `${app.frontend-url}/payment/payos/result`.
 - **FR-007**: Credits via `WalletService.creditAvailable(..., "PAYOS_TOPUP", ..., idempotencyKey = orderCode)` guarded by pessimistic lock + status.
-- **FR-008**: Add `PAYOS_TOPUP` to `WalletTxType`; remove ZaloPay/MoMo code, config, docs and enum values.
+- **FR-008**: Add `PAYOS_TOPUP` to `WalletTxType`; payOS is the only gateway integration.
 - **FR-009**: No new SDK; use `javax.crypto.Mac` + `RestTemplateBuilder`.
 - **FR-010**: Config via `app.payos.*` with env overrides `PAYOS_CLIENT_ID`, `PAYOS_API_KEY`, `PAYOS_CHECKSUM_KEY`, `PAYOS_BASE_URL`, `PAYOS_RETURN_URL`, `PAYOS_CANCEL_URL`.
 
