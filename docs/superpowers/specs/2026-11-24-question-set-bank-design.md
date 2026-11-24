@@ -50,6 +50,7 @@ Giới hạn đã biết và chấp nhận: **không thể chặn 100% trùng ng
 | D21 | Lưu kết quả chấm AI vào `ai_evaluation` | hiện chỉ lưu `score`, feedback bị mất |
 | D22 | MCQ chấm local, chỉ ESSAY gọi AI | giảm mạnh chi phí: 1 program = 50 lần chấm |
 | D23 | Đánh giá tổng: số liệu tính local, nhận xét AI lưu cache | 1 AI call/program thay vì mỗi lần xem |
+| D24 | User chọn **skill + level** trước khi sinh program; bỏ `buildTopics` | tiết kiệm 1 lượt AI/program, chỉ sinh đúng nhu cầu |
 
 ### Điều chỉnh so với yêu cầu "bỏ archived"
 
@@ -356,10 +357,12 @@ POST /api/v1/admin/question-sets
 ### 7.2 Sinh đồng bộ khi user cần
 
 ```
-POST /api/v1/study/generate  (endpoint không đổi)
-→ buildTopics(cv, position) như hiện tại
-→ mỗi topic: acquire(position, skillTag, difficulty, ESSAY, language, 10, userId)
+POST /api/v1/study/generate   (contract đổi — xem §7.10)
+→ với mỗi skill user chọn: acquire(skillName, difficulty, ESSAY, language, 10, userId)
+→ topic.title = "<Skill> <Level>", topic.description = set.theme
 ```
+
+`buildTopics` (1 lượt AI/program) bị **bỏ** — skill + level do user chọn (§7.10).
 
 Bên trong `acquire`:
 
@@ -552,6 +555,47 @@ Quy tắc:
 - Gộp: repoint `question_set.subtopic_id` sang đích, row nguồn `status = MERGED`.
 - `PUT .../subtopics` chỉ ghi `source = ADMIN`; không xoá row đang được `question_set` tham chiếu.
 
+### 7.10 User chọn skill & level trước khi sinh program
+
+Bước 1 — lấy lựa chọn từ CV:
+
+```
+GET /api/v1/study/skill-options
+→ đọc CV mới nhất của user, trích skill qua SkillMatcher/SkillKeys
+→ dedupe bằng SkillKeys.normalize, sort theo matchScore desc
+→ trả tối đa 8 dòng, 3 dòng đầu `recommended = true`
+```
+
+```json
+[ { "skillName": "Docker", "skillKey": "docker", "matchScore": 82,
+    "recommended": true, "suggestedDifficulty": "BEGINNER" } ]
+```
+
+- `suggestedDifficulty` suy từ `ProficiencyLevel` trong CV; **user sửa được**.
+- Chưa có CV → trả mảng rỗng (FE cho user nhập skill tay); không gọi AI.
+
+Bước 2 — sinh program theo đúng lựa chọn:
+
+```
+POST /api/v1/study/generate
+  { skills: [ { skillName, difficulty } ] }
+```
+
+| Quy tắc | Chi tiết |
+|---|---|
+| Số lượng | 1–5 skill; > 5 → 400 |
+| Bắt buộc | `skills` rỗng/thiếu → 400 (không còn đường tự động) |
+| Chuẩn hoá | `skillKey = SkillKeys.normalize(skillName)` — PHẢI trùng hàm với `acquire` |
+| Trùng sau normalize | gộp, giữ `difficulty` cao hơn |
+| `difficulty` | bắt buộc, lấy đúng giá trị user gửi |
+| Số topic | bằng số skill sau khi gộp |
+
+Vì mỗi cell đã có sẵn bộ, bước 2 thường không gọi AI: chỉ skill chưa có bộ mới sinh (§7.3.1).
+
+**Breaking change:** FE phải gọi `skill-options` trước khi gọi `generate`. Ghi vào `docs/api-inventory.csv`.
+
+`buildTopics` không còn caller → xoá; title/description của topic lấy từ skill + theme của bộ.
+
 ## 8. Cấu hình
 
 ```yaml
@@ -603,6 +647,7 @@ Unit test offline (harness hiện tại, không cần Docker/MySQL), **phải đ
 | `SubtopicCoverageTest` | skill có taxonomy → AI không tạo nhãn mới; trần = subtopic × sets-per-subtopic; coverage đếm đúng `MISSING` |
 | `AnswerGradingFlowTest` | MCQ không gọi AI; ESSAY gọi AI ngoài TX; `ai_evaluation` được ghi |
 | `ProgramSummaryTest` | số liệu bySkill/byArchetype đúng; cache stale khi có answer mới |
+| `SkillSelectionFlowTest` | `skill-options` dedupe + cap 8; `generate` từ chối `skills` rỗng, gộp skill trùng giữ level cao |
 | `QuestionPoolServiceImplTest` (sửa) | `acquire` trả nguyên bộ; set thiếu câu → `served < requested` |
 | `StudyProgramServiceImplTest` (mới) | ghi `study_topic.set_id`, bản copy có `content_key = NULL` |
 
