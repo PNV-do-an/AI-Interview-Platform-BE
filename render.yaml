@@ -48,3 +48,19 @@ services:
       # sync: false = Render hoi gia tri trong dashboard, khong commit key vao repo.
       - key: OPENAI_API_KEY
         sync: false
+      # payOS: return/cancel phải trỏ về BACKEND public, không được là localhost.
+      # App tự fallback về RENDER_EXTERNAL_URL nếu các biến dưới bị thiếu.
+      - key: APP_PUBLIC_BASE_URL
+        value: "https://ai-interview-backend-staging.onrender.com"
+      - key: PAYOS_CLIENT_ID
+        sync: false
+      - key: PAYOS_API_KEY
+        sync: false
+      - key: PAYOS_CHECKSUM_KEY
+        sync: false
+      - key: PAYOS_BASE_URL
+        value: "https://api-merchant.payos.vn"
+      - key: PAYOS_RETURN_URL
+        value: "https://ai-interview-backend-staging.onrender.com/api/v1/payment/payos/return"
+      - key: PAYOS_CANCEL_URL
+        value: "https://ai-interview-backend-staging.onrender.com/api/v1/payment/payos/cancel"

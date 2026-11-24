@@ -4,6 +4,7 @@ import com.aiinterview.platform.common.response.ApiResponse;
 import com.aiinterview.platform.model.dto.request.PayosCreateRequest;
 import com.aiinterview.platform.model.dto.request.PayosWebhookRequest;
 import com.aiinterview.platform.model.dto.response.PayosCreateResponse;
+import com.aiinterview.platform.model.dto.response.PayosStatusResponse;
 import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.repository.UserRepository;
 import com.aiinterview.platform.security.utils.SecurityUtils;
@@ -33,6 +34,18 @@ public class PayosController {
         User user = SecurityUtils.getCurrentUser(userRepository);
         return ResponseEntity.ok(ApiResponse.success(
                 payosService.createPayment(user, req.getAmount(), req.getDescription())));
+    }
+
+    /**
+     * FE gọi sau khi payOS redirect (hoặc khi người dùng bấm kiểm tra lại) để backend
+     * đối soát với payOS. Nếu đã thanh toán, ví được cộng ngay cả khi webhook bị lỡ.
+     */
+    @GetMapping("/status")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<PayosStatusResponse>> status(@RequestParam long orderCode) {
+        User user = SecurityUtils.getCurrentUser(userRepository);
+        return ResponseEntity.ok(ApiResponse.success(
+                payosService.getPaymentStatus(user, orderCode)));
     }
 
     /** Server-to-server từ payOS. Luôn trả 2XX để payOS không retry vô hạn. */

@@ -47,3 +47,23 @@ Response: `302 Location: ${app.frontend-url}/payment/payos/result?status=<succes
 ## `GET /cancel` (public)
 
 Same query params; forces `cancel=true` → 302 `status=failed`.
+
+## `GET /status?orderCode=...` (authenticated)
+
+Đối soát với payOS; nếu payOS báo `PAID` thì cộng ví ngay (idempotent), kể cả khi webhook
+hoặc return URL bị lỡ. Chỉ chủ giao dịch được xem.
+
+`200`:
+
+```json
+{ "success": true, "data": { "orderCode": 1763936400000123, "status": "SUCCESS", "amount": 10000, "paymentLinkId": "..." } }
+```
+
+`status`: `PENDING | SUCCESS | FAILED`. Lỗi: `401` (chưa đăng nhập), `403` (không phải chủ giao dịch),
+`404` (orderCode không tồn tại).
+
+## Reconciliation
+
+Scheduler `PayosServiceImpl.reconcilePendingPayments` chạy mỗi `PAYOS_RECONCILE_DELAY_MS`
+(mặc định 120000 ms), quét tối đa `PAYOS_RECONCILE_BATCH_SIZE` giao dịch `PENDING` trong
+`PAYOS_RECONCILE_LOOKBACK_HOURS` giờ gần nhất, query payOS và cộng ví nếu `PAID`.

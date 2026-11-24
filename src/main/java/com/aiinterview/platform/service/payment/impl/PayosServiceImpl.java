@@ -1,8 +1,11 @@
 package com.aiinterview.platform.service.payment.impl;
 
 import com.aiinterview.platform.common.exception.BadRequestException;
+import com.aiinterview.platform.common.exception.ForbiddenException;
+import com.aiinterview.platform.common.exception.ResourceNotFoundException;
 import com.aiinterview.platform.model.dto.request.PayosWebhookRequest;
 import com.aiinterview.platform.model.dto.response.PayosCreateResponse;
+import com.aiinterview.platform.model.dto.response.PayosStatusResponse;
 import com.aiinterview.platform.model.entity.PayosTransaction;
 import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.enums.PayosStatus;
@@ -12,14 +15,19 @@ import com.aiinterview.platform.service.payment.PayosService;
 import com.aiinterview.platform.service.payment.WalletService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
 
 import javax.crypto.Mac;
@@ -28,10 +36,12 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ThreadLocalRandom;
@@ -41,6 +51,7 @@ import java.util.stream.Collectors;
  * payOS payment-request v2: create link -> redirect -> webhook/query -> cộng ví idempotent.
  * payOS hiện không có sandbox riêng; credential được đưa qua app.payos.* / env.
  */
+@Slf4j
 @Service
 public class PayosServiceImpl implements PayosService {
 
@@ -49,12 +60,14 @@ public class PayosServiceImpl implements PayosService {
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
+    private final TransactionTemplate transactionTemplate;
 
     public PayosServiceImpl(PayosTransactionRepository txnRepository,
                             WalletService walletService,
                             UserRepository userRepository,
                             ObjectMapper objectMapper,
-                            RestTemplateBuilder restTemplateBuilder) {
+                            RestTemplateBuilder restTemplateBuilder,
+                            PlatformTransactionManager transactionManager) {
         this.txnRepository = txnRepository;
         this.walletService = walletService;
         this.userRepository = userRepository;
@@ -63,6 +76,7 @@ public class PayosServiceImpl implements PayosService {
                 .setConnectTimeout(Duration.ofSeconds(5))
                 .setReadTimeout(Duration.ofSeconds(15))
                 .build();
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
     @Value("${app.payos.client-id:}")
@@ -73,12 +87,25 @@ public class PayosServiceImpl implements PayosService {
     private String checksumKey;
     @Value("${app.payos.base-url:https://api-merchant.payos.vn}")
     private String baseUrl;
-    @Value("${app.payos.return-url:http://localhost:8081/api/v1/payment/payos/return}")
+    @Value("${app.payos.return-url:}")
     private String returnUrl;
-    @Value("${app.payos.cancel-url:http://localhost:8081/api/v1/payment/payos/cancel}")
+    @Value("${app.payos.cancel-url:}")
     private String cancelUrl;
+    /**
+     * URL public của backend, dùng để tự dựng return/cancel URL khi biến PAYOS_* bị thiếu
+     * hoặc còn sót giá trị localhost trên môi trường deploy.
+     */
+    @Value("${app.public-base-url:}")
+    private String publicBaseUrl;
     @Value("${app.frontend-url:http://localhost:3000}")
     private String frontendUrl;
+
+    @Value("${app.payos.reconcile-enabled:true}")
+    private boolean reconcileEnabled;
+    @Value("${app.payos.reconcile-lookback-hours:24}")
+    private long reconcileLookbackHours;
+    @Value("${app.payos.reconcile-batch-size:50}")
+    private int reconcileBatchSize;
 
     @Override
     @Transactional
@@ -88,6 +115,8 @@ public class PayosServiceImpl implements PayosService {
 
         long orderCode = generateOrderCode();
         String desc = normalizeDescription(description);
+        String effectiveReturnUrl = resolvePublicUrl(returnUrl, "/api/v1/payment/payos/return");
+        String effectiveCancelUrl = resolvePublicUrl(cancelUrl, "/api/v1/payment/payos/cancel");
 
         PayosTransaction txn = PayosTransaction.builder()
                 .userId(user.getId())
@@ -99,17 +128,17 @@ public class PayosServiceImpl implements PayosService {
         txnRepository.save(txn);
 
         String signatureData = "amount=" + amount
-                + "&cancelUrl=" + cancelUrl
+                + "&cancelUrl=" + effectiveCancelUrl
                 + "&description=" + desc
                 + "&orderCode=" + orderCode
-                + "&returnUrl=" + returnUrl;
+                + "&returnUrl=" + effectiveReturnUrl;
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("orderCode", orderCode);
         body.put("amount", amount);
         body.put("description", desc);
-        body.put("cancelUrl", cancelUrl);
-        body.put("returnUrl", returnUrl);
+        body.put("cancelUrl", effectiveCancelUrl);
+        body.put("returnUrl", effectiveReturnUrl);
         body.put("signature", hmacSHA256(checksumKey, signatureData));
 
         try {
@@ -126,6 +155,9 @@ public class PayosServiceImpl implements PayosService {
 
             txn.setPaymentLinkId(data.path("paymentLinkId").asText(""));
             txnRepository.save(txn);
+
+            log.info("payOS create OK orderCode={} amount={} returnUrl={} cancelUrl={}",
+                    orderCode, amount, effectiveReturnUrl, effectiveCancelUrl);
 
             return PayosCreateResponse.builder()
                     .checkoutUrl(checkoutUrl)
@@ -148,6 +180,7 @@ public class PayosServiceImpl implements PayosService {
     public Map<String, Object> handleWebhook(PayosWebhookRequest request) {
         try {
             if (request == null || request.getData() == null || isBlank(request.getSignature())) {
+                log.warn("payOS webhook ignored: missing payload/signature");
                 return webhookResult("01", "invalid payload");
             }
             if (!isBlank(request.getCode()) && !"00".equals(request.getCode())) {
@@ -155,6 +188,7 @@ public class PayosServiceImpl implements PayosService {
             }
             String expected = hmacSHA256(checksumKey, signable(request.getData()));
             if (!constantEquals(expected, request.getSignature())) {
+                log.warn("payOS webhook rejected: invalid signature");
                 return webhookResult("01", "invalid signature");
             }
 
@@ -165,33 +199,43 @@ public class PayosServiceImpl implements PayosService {
                     && (request.getSuccess() == null || request.getSuccess());
 
             PayosTransaction txn = txnRepository.findByOrderCodeForUpdate(orderCode).orElse(null);
-            if (txn == null) return webhookResult("01", "order not found");
-            if (amount != txn.getAmount()) return webhookResult("01", "invalid amount");
+            if (txn == null) {
+                log.warn("payOS webhook orderCode={} not found", orderCode);
+                return webhookResult("01", "order not found");
+            }
+            if (amount != txn.getAmount()) {
+                log.warn("payOS webhook orderCode={} amount mismatch: provider={} txn={}",
+                        orderCode, amount, txn.getAmount());
+                return webhookResult("01", "invalid amount");
+            }
 
             if (paid) {
                 confirmSuccess(txn,
                         data.path("paymentLinkId").asText(""),
                         data.path("reference").asText(""));
+                log.info("payOS webhook credited orderCode={} amount={}", orderCode, amount);
             } else if (txn.getStatus() == PayosStatus.PENDING) {
                 txn.setStatus(PayosStatus.FAILED);
                 txnRepository.save(txn);
+                log.info("payOS webhook marked FAILED orderCode={} dataCode={} success={}",
+                        orderCode, data.path("code").asText(""), request.getSuccess());
             }
             // payOS chỉ cần 2XX để biết đã nhận webhook.
             return webhookResult("00", "success");
         } catch (Exception e) {
             // 2XX vẫn trả để payOS không loop retry; lỗi được log ở tầng exception handler.
+            log.error("payOS webhook processing error", e);
             return webhookResult("99", String.valueOf(e.getMessage()));
         }
     }
 
     @Override
-    @Transactional
     public String handleReturn(Map<String, String> params) {
         String orderCodeRaw = params.get("orderCode");
         String status = params.get("status");
 
         if ("true".equalsIgnoreCase(params.get("cancel")) || "CANCELLED".equalsIgnoreCase(status)) {
-            markFailed(orderCodeRaw);
+            markFailedByRawCode(orderCodeRaw);
             return resultPage("failed", orderCodeRaw);
         }
 
@@ -202,27 +246,57 @@ public class PayosServiceImpl implements PayosService {
             return resultPage("error", orderCodeRaw);
         }
 
-        PayosTransaction txn = txnRepository.findByOrderCodeForUpdate(orderCode).orElse(null);
+        PayosTransaction txn = txnRepository.findByOrderCode(orderCode).orElse(null);
         if (txn == null) return resultPage("error", orderCodeRaw);
         if (txn.getStatus() == PayosStatus.SUCCESS) return resultPage("success", orderCodeRaw);
 
         if ("PAID".equalsIgnoreCase(status)) {
-            if (queryPaid(orderCode)) {
-                confirmSuccess(txn, "", "");
+            PaymentQueryResult result = queryPayment(orderCode);
+            if (result != null && result.status() == PayosStatus.SUCCESS) {
+                confirmSuccessLocked(orderCode, result);
                 return resultPage("success", orderCodeRaw);
             }
-            // Query chưa thấy PAID (payOS có độ trễ): để webhook xác nhận, không báo failed oan.
+            if (result != null && result.status() == PayosStatus.FAILED) {
+                markFailedLocked(orderCode);
+                return resultPage("failed", orderCodeRaw);
+            }
+            // Query chưa thấy PAID (payOS có độ trễ): để webhook/scheduler xác nhận.
             return resultPage("pending", orderCodeRaw);
         }
         if ("PENDING".equalsIgnoreCase(status) || "PROCESSING".equalsIgnoreCase(status)) {
             return resultPage("pending", orderCodeRaw);
         }
 
-        if (txn.getStatus() == PayosStatus.PENDING) {
-            txn.setStatus(PayosStatus.FAILED);
-            txnRepository.save(txn);
+        // Status lạ: không đánh failed oan, để webhook/scheduler đối soát tiếp.
+        return resultPage("pending", orderCodeRaw);
+    }
+
+    @Override
+    public PayosStatusResponse getPaymentStatus(User user, long orderCode) {
+        PayosTransaction txn = txnRepository.findByOrderCode(orderCode)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy giao dịch payOS"));
+        if (!txn.getUserId().equals(user.getId())) {
+            throw new ForbiddenException("Bạn không có quyền xem giao dịch này");
         }
-        return resultPage("failed", orderCodeRaw);
+
+        if (txn.getStatus() == PayosStatus.PENDING) {
+            PaymentQueryResult result = queryPayment(orderCode);
+            if (result != null) {
+                if (result.status() == PayosStatus.SUCCESS) {
+                    confirmSuccessLocked(orderCode, result);
+                } else if (result.status() == PayosStatus.FAILED) {
+                    markFailedLocked(orderCode);
+                }
+            }
+        }
+
+        PayosTransaction latest = txnRepository.findByOrderCode(orderCode).orElse(txn);
+        return PayosStatusResponse.builder()
+                .orderCode(latest.getOrderCode())
+                .status(latest.getStatus().name())
+                .amount(latest.getAmount())
+                .paymentLinkId(latest.getPaymentLinkId())
+                .build();
     }
 
     /** Đánh dấu thành công + cộng ví. Gọi lại nhiều lần vẫn chỉ cộng 1 lần. */
@@ -241,38 +315,130 @@ public class PayosServiceImpl implements PayosService {
         }
     }
 
-    private boolean queryPaid(long orderCode) {
+    /** Khoá row rồi xác nhận, tránh webhook và return/status cộng tiền hai lần. */
+    private void confirmSuccessLocked(long orderCode, PaymentQueryResult result) {
+        transactionTemplate.executeWithoutResult(ignored -> {
+            PayosTransaction txn = txnRepository.findByOrderCodeForUpdate(orderCode).orElse(null);
+            if (txn != null) confirmSuccess(txn, result.paymentLinkId(), result.reference());
+        });
+    }
+
+    private void markFailedLocked(long orderCode) {
+        transactionTemplate.executeWithoutResult(ignored ->
+                txnRepository.findByOrderCodeForUpdate(orderCode).ifPresent(txn -> {
+                    if (txn.getStatus() == PayosStatus.PENDING) {
+                        txn.setStatus(PayosStatus.FAILED);
+                        txnRepository.save(txn);
+                    }
+                }));
+    }
+
+    private void markFailedByRawCode(String orderCodeRaw) {
+        if (isBlank(orderCodeRaw)) return;
+        try {
+            markFailedLocked(Long.parseLong(orderCodeRaw));
+        } catch (NumberFormatException ignored) {
+            // bỏ qua orderCode lạ
+        }
+    }
+
+    /** Fallback định kỳ: đối soát các giao dịch còn PENDING, phòng khi webhook/return bị lỡ. */
+    @Scheduled(
+            fixedDelayString = "${app.payos.reconcile-delay-ms:120000}",
+            initialDelayString = "${app.payos.reconcile-initial-delay-ms:60000}")
+    public void reconcilePendingPayments() {
+        if (!reconcileEnabled) return;
+        if (isBlank(clientId) || isBlank(apiKey) || isBlank(checksumKey)) return;
+
+        LocalDateTime now = LocalDateTime.now();
+        int batchSize = Math.max(1, Math.min(reconcileBatchSize, 100));
+        List<PayosTransaction> pending;
+        try {
+            pending = txnRepository.findByStatusAndCreatedAtAfterOrderByCreatedAtAsc(
+                    PayosStatus.PENDING,
+                    now.minusHours(Math.max(1, reconcileLookbackHours)),
+                    PageRequest.of(0, batchSize));
+        } catch (Exception e) {
+            log.warn("payOS reconcile query failed: {}", e.getMessage());
+            return;
+        }
+
+        int credited = 0;
+        for (PayosTransaction txn : pending) {
+            // Bỏ qua giao dịch vừa tạo, payOS có thể chưa kịp cập nhật.
+            if (txn.getCreatedAt() != null && txn.getCreatedAt().isAfter(now.minusSeconds(30))) continue;
+            PaymentQueryResult result = queryPayment(txn.getOrderCode());
+            if (result == null) continue;
+            if (result.status() == PayosStatus.SUCCESS) {
+                confirmSuccessLocked(txn.getOrderCode(), result);
+                credited++;
+            } else if (result.status() == PayosStatus.FAILED) {
+                markFailedLocked(txn.getOrderCode());
+            }
+        }
+        if (credited > 0) {
+            log.info("payOS reconcile credited {} of {} pending transactions", credited, pending.size());
+        }
+    }
+
+    private PaymentQueryResult queryPayment(long orderCode) {
         try {
             HttpEntity<Void> entity = new HttpEntity<>(authHeaders(false));
             String body = restTemplate.exchange(
                     baseUrl + "/v2/payment-requests/" + orderCode,
                     HttpMethod.GET, entity, String.class).getBody();
+            if (isBlank(body)) return null;
             JsonNode root = objectMapper.readTree(body);
-            if (!"00".equals(root.path("code").asText())) return false;
+            if (!"00".equals(root.path("code").asText())) {
+                log.warn("payOS query orderCode={} failed: {} - {}",
+                        orderCode, root.path("code").asText(), root.path("desc").asText());
+                return null;
+            }
             JsonNode data = root.path("data");
             String signature = root.path("signature").asText(null);
             if (!isBlank(signature)
                     && !constantEquals(hmacSHA256(checksumKey, signable(data)), signature)) {
-                return false;
+                log.warn("payOS query orderCode={} signature mismatch", orderCode);
+                return null;
             }
-            return "PAID".equalsIgnoreCase(data.path("status").asText(""));
+            long returnedOrderCode = data.path("orderCode").asLong(0L);
+            if (returnedOrderCode != 0L && returnedOrderCode != orderCode) {
+                log.warn("payOS query returned orderCode={} for requested {}", returnedOrderCode, orderCode);
+                return null;
+            }
+
+            String rawStatus = data.path("status").asText("");
+            PayosStatus status = switch (rawStatus.toUpperCase(Locale.ROOT)) {
+                case "PAID" -> PayosStatus.SUCCESS;
+                case "CANCELLED", "CANCELED", "EXPIRED", "FAILED" -> PayosStatus.FAILED;
+                default -> PayosStatus.PENDING;
+            };
+            return new PaymentQueryResult(
+                    status,
+                    data.path("id").asText(""),
+                    extractReference(data),
+                    rawStatus);
         } catch (Exception e) {
-            return false;
+            log.warn("payOS query orderCode={} error: {}", orderCode, e.getMessage());
+            return null;
         }
     }
 
-    private void markFailed(String orderCodeRaw) {
-        if (isBlank(orderCodeRaw)) return;
-        try {
-            txnRepository.findByOrderCodeForUpdate(Long.parseLong(orderCodeRaw)).ifPresent(txn -> {
-                if (txn.getStatus() == PayosStatus.PENDING) {
-                    txn.setStatus(PayosStatus.FAILED);
-                    txnRepository.save(txn);
-                }
-            });
-        } catch (NumberFormatException ignored) {
-            // bỏ qua orderCode lạ
+    private String extractReference(JsonNode data) {
+        JsonNode transactions = data.path("transactions");
+        if (transactions.isArray()) {
+            for (JsonNode tx : transactions) {
+                String ref = tx.path("reference").asText("");
+                if (!isBlank(ref)) return ref;
+            }
+        } else if (transactions.isObject()) {
+            Iterator<Map.Entry<String, JsonNode>> it = transactions.fields();
+            while (it.hasNext()) {
+                String ref = it.next().getValue().path("reference").asText("");
+                if (!isBlank(ref)) return ref;
+            }
         }
+        return data.path("reference").asText("");
     }
 
     private HttpHeaders authHeaders(boolean json) {
@@ -292,8 +458,48 @@ public class PayosServiceImpl implements PayosService {
     }
 
     private String resultPage(String status, String orderCode) {
-        return frontendUrl + "/payment/payos/result?status=" + safe(status)
+        return stripTrailingSlash(frontendUrl) + "/payment/payos/result?status=" + safe(status)
                 + "&orderCode=" + safe(orderCode);
+    }
+
+    /**
+     * Trả URL public dùng cho payOS. Nếu cấu hình thiếu, trỏ về localhost, hoặc trỏ nhầm
+     * vào FE thì tự dựng lại từ app.public-base-url (RENDER_EXTERNAL_URL trên Render).
+     */
+    private String resolvePublicUrl(String configured, String path) {
+        String base = stripTrailingSlash(publicBaseUrl);
+        boolean baseUsable = !isBlank(base) && !isLocalUrl(base);
+
+        if (!isBlank(configured) && !isLocalUrl(configured) && !pointsToFrontend(configured)) {
+            return configured;
+        }
+        if (baseUsable) {
+            return base + path;
+        }
+        if (!isBlank(configured)) {
+            return configured;
+        }
+        return "http://localhost:8081" + path;
+    }
+
+    private boolean pointsToFrontend(String url) {
+        if (isBlank(url) || isBlank(frontendUrl)) return false;
+        String fe = stripTrailingSlash(frontendUrl);
+        String value = stripTrailingSlash(url);
+        return value.equals(fe) || value.startsWith(fe + "/");
+    }
+
+    private boolean isLocalUrl(String url) {
+        if (isBlank(url)) return false;
+        String value = url.toLowerCase(Locale.ROOT);
+        return value.contains("localhost") || value.contains("127.0.0.1") || value.contains("0.0.0.0");
+    }
+
+    private String stripTrailingSlash(String url) {
+        if (url == null) return "";
+        String value = url.trim();
+        while (value.endsWith("/")) value = value.substring(0, value.length() - 1);
+        return value;
     }
 
     private void requireConfig() {
@@ -388,5 +594,8 @@ public class PayosServiceImpl implements PayosService {
         } catch (Exception e) {
             return s;
         }
+    }
+
+    private record PaymentQueryResult(PayosStatus status, String paymentLinkId, String reference, String rawStatus) {
     }
 }

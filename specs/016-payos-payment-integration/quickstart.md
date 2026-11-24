@@ -16,9 +16,17 @@ Vào `my.payos.vn` → tạo/xác thực kênh thanh toán → copy:
 PAYOS_CLIENT_ID=<client id>
 PAYOS_API_KEY=<api key>
 PAYOS_CHECKSUM_KEY=<checksum key>
-PAYOS_RETURN_URL=http://localhost:8080/api/v1/payment/payos/return
-PAYOS_CANCEL_URL=http://localhost:8080/api/v1/payment/payos/cancel
+# URL public của BACKEND (không phải FE). Trên Render có thể bỏ trống:
+# app tự dùng RENDER_EXTERNAL_URL để dựng return/cancel URL.
+APP_PUBLIC_BASE_URL=https://<backend-domain>
+PAYOS_RETURN_URL=https://<backend-domain>/api/v1/payment/payos/return
+PAYOS_CANCEL_URL=https://<backend-domain>/api/v1/payment/payos/cancel
 ```
+
+> **Không đặt `PAYOS_RETURN_URL` thành `localhost` khi đã deploy.** Nếu biến này còn sót
+> localhost (hoặc trỏ về FE), backend sẽ tự thay bằng `APP_PUBLIC_BASE_URL` / `RENDER_EXTERNAL_URL`.
+> FE gọi `GET /api/v1/payment/payos/status?orderCode=...` sau khi redirect để đối soát và cộng ví,
+> nên giao dịch vẫn về đúng dù webhook bị lỡ. Job reconcile mặc định chạy mỗi 2 phút cho các txn `PENDING`.
 
 Đăng ký webhook public (ngrok cho local) trong payOS dashboard hoặc gọi:
 
@@ -47,11 +55,14 @@ Response:
 
 Mở `checkoutUrl`, quét QR / chuyển khoản với nội dung payOS hiển thị.
 
-## 4. Webhook & return
+## 4. Webhook, return & đối soát
 
 - `POST /api/v1/payment/payos/webhook` → verify signature → cộng ví idempotent.
 - `GET /api/v1/payment/payos/return?code=00&id=...&status=PAID&orderCode=...` → query payOS → 302 về frontend `?status=success&orderCode=...`.
-- Gọi lại webhook nhiều lần → số dư không đổi.
+- `GET /api/v1/payment/payos/status?orderCode=...` (JWT) → query payOS; nếu `PAID` thì cộng ví ngay,
+  trả `{ status: PENDING|SUCCESS|FAILED, amount, ... }`. FE dùng endpoint này thay vì tin query param.
+- Scheduler `reconcilePendingPayments` quét txn `PENDING` trong 24h gần nhất mỗi 2 phút.
+- Gọi lại webhook/status nhiều lần → số dư không đổi (idempotency key `PAYOS-<orderCode>` + khoá row).
 
 ## 5. Kiểm tra ví
 

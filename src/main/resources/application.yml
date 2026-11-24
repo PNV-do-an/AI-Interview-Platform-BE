@@ -69,6 +69,9 @@ app:
     expiration: 86400000
     refresh-expiration: 604800000
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
+  # URL public của backend. Render tự cấp RENDER_EXTERNAL_URL; nhờ đó return/cancel URL
+  # của payOS không còn rơi về localhost khi deploy mà quên đặt PAYOS_RETURN_URL.
+  public-base-url: "${APP_PUBLIC_BASE_URL:${RENDER_EXTERNAL_URL:http://localhost:8081}}"
   # Cào JD IT TopCV bằng một nút bấm: URL danh sách mặc định + giới hạn mỗi lần.
   # Có thể override bằng env khi deploy. Proxy/cookie dùng khi TopCV chặn IP server.
   topcv:
@@ -93,8 +96,15 @@ app:
     api-key: ${PAYOS_API_KEY:}
     checksum-key: ${PAYOS_CHECKSUM_KEY:}
     base-url: ${PAYOS_BASE_URL:https://api-merchant.payos.vn}
-    return-url: ${PAYOS_RETURN_URL:http://localhost:8081/api/v1/payment/payos/return}
-    cancel-url: ${PAYOS_CANCEL_URL:http://localhost:8081/api/v1/payment/payos/cancel}
+    # Phải trỏ về BACKEND (không phải FE, không phải localhost khi đã deploy).
+    return-url: "${PAYOS_RETURN_URL:${app.public-base-url}/api/v1/payment/payos/return}"
+    cancel-url: "${PAYOS_CANCEL_URL:${app.public-base-url}/api/v1/payment/payos/cancel}"
+    # Đối soát định kỳ các giao dịch PENDING để không mất tiền khi webhook bị lỡ.
+    reconcile-enabled: ${PAYOS_RECONCILE_ENABLED:true}
+    reconcile-delay-ms: ${PAYOS_RECONCILE_DELAY_MS:120000}
+    reconcile-initial-delay-ms: ${PAYOS_RECONCILE_INITIAL_DELAY_MS:60000}
+    reconcile-lookback-hours: ${PAYOS_RECONCILE_LOOKBACK_HOURS:24}
+    reconcile-batch-size: ${PAYOS_RECONCILE_BATCH_SIZE:50}
 
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
