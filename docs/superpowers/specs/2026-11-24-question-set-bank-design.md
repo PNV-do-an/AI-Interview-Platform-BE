@@ -36,7 +36,10 @@ Giới hạn đã biết và chấp nhận: **không thể chặn 100% trùng ng
 | D7 | Sinh set **đồng bộ** trong request | chấp nhận 3–10s ở lần đầu/skill |
 | D8 | Hạn mức lượt dùng = tính năng riêng, **ngoài phạm vi spec này** | không đặt cap ở đây |
 | D9 | `acquire` cấp **nguyên bộ**, không trộn câu giữa các bộ | giữ mạch liên kết |
-| D10 | Rotation **3 tầng + cooldown** `redo-after-days` thay vì loại trừ vĩnh viễn | user được làm lại bộ cũ sau cooldown, hoặc khi đã dùng hết bộ |
+| D10 | Rotation **3 tầng + cooldown** thay vì loại trừ vĩnh viễn | mặc định 4 ngày |
+| D11 | Cooldown **thích ứng theo điểm** đánh giá của user | điểm thấp → làm lại sớm; điểm cao → giãn ra |
+| D12 | User **chủ động làm lại** bộ bất kỳ, bỏ qua cooldown | chức năng riêng của user, không cần admin |
+| D13 | Admin **thêm câu thủ công** vào bộ | bù khi bộ thiếu câu do `REJECTED` |
 
 ### Điều chỉnh so với yêu cầu "bỏ archived"
 
@@ -102,7 +105,9 @@ Ràng buộc: `UNIQUE (skill_key, content_key)`. MySQL cho phép nhiều NULL n�
 
 ### 4.5 Dữ liệu cũ
 
-Các row `question` đang tồn tại có `set_id = NULL` và **không được backfill** → chúng không còn được phục vụ cho lượt học mới (vẫn giữ cho `study_answer` lịch sử). Lý do: chúng thiếu `archetype`, `theme`, `content_key` nên không thoả prompt contract và quota. Nếu DB đang có pool đáng kể thì đây là chi phí phải chấp nhận của lần triển khai đầu.
+Các row `question` đang tồn tại có `set_id = NULL` và **không được backfill** → chúng không còn được phục vụ cho lượt học mới (vẫn giữ cho `study_answer` lịch sử). Lý do: chúng thiếu `archetype`, `theme`, `content_key` nên không thoả prompt contract và quota.
+
+**Đã xác nhận:** pool hiện tại chưa đáng kể, bỏ và sinh lại chấp nhận được → chi phí triển khai ≈ 0.
 
 ### 4.6 Sinh `set_name` không trùng
 
@@ -116,9 +121,21 @@ Tự sinh theo `"<Level> <Skill> <n>"` với `n` = số set hiện có của cel
 | `user_id` | BIGINT NOT NULL | |
 | `set_id` | BIGINT NOT NULL, FK → `question_set.id` | |
 | `use_count` | INT NOT NULL DEFAULT 0 | số lần user đã nhận bộ này |
-| `last_used_at` | DATETIME NOT NULL | mốc cho cooldown |
+| `last_used_at` | DATETIME NOT NULL | lần cuối nhận bộ |
+| `available_at` | DATETIME NULL | mốc được cấp lại; `NULL` = đang làm dở, không cấp lại |
 
-`UNIQUE (user_id, set_id)`.
+`UNIQUE (user_id, set_id)`. Index `(user_id, available_at)`.
+
+`available_at` được tính **một lần khi topic hoàn thành** (trong `updateProgress`) từ điểm trung bình của các câu thuộc bộ đó:
+
+| Điểm TB của bộ | Cooldown |
+|---|---|
+| `null` (chưa trả lời) | `redo-after-days` = 4 ngày |
+| `< score-low-threshold` (6) | `redo-after-days-low-score` = 1 ngày |
+| từ 6 đến < 8 | `redo-after-days` = 4 ngày |
+| `>= score-high-threshold` (8) | `redo-after-days-high-score` = 14 ngày |
+
+Lý do dùng cột thay vì tính trong query: nhiều mốc khác nhau cho từng bộ thì không thể viết bằng một `INTERVAL` chung trong JPQL.
 
 Đây là nguồn dữ liệu của rotation. `question_set` là tài sản dùng chung (không có `user_id`), nên quan hệ "user này đã dùng bộ nào, lúc nào" phải nằm ở bảng riêng.
 
@@ -159,8 +176,9 @@ CREATE TABLE user_set_usage (
     set_id       BIGINT   NOT NULL,
     use_count    INT      NOT NULL DEFAULT 0,
     last_used_at DATETIME NOT NULL,
+    available_at DATETIME NULL,
     UNIQUE KEY uk_user_set (user_id, set_id),
-    KEY idx_user_set_last_used (user_id, last_used_at)
+    KEY idx_user_set_available (user_id, available_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ```
 
@@ -279,9 +297,9 @@ Bên trong `acquire`:
 
 | Tầng | Điều kiện | Ý nghĩa |
 |---|---|---|
-| 1 | chưa dùng bao giờ | nội dung hoàn toàn mới |
-| 2 | đã dùng, nhưng `last_used_at < now - redo-after-days` | đủ lâu để làm lại |
-| 3 | đã dùng và còn trong cooldown | chỉ dùng khi không còn bộ nào ở tầng 1–2; chọn bộ lâu nhất |
+| 1 | không có row trong `user_set_usage` | nội dung hoàn toàn mới |
+| 2 | `available_at IS NOT NULL AND available_at <= now` | đã đủ lâu để làm lại |
+| 3 | còn lại (đang làm dở, hoặc chưa tới hạn) | chỉ dùng khi không còn bộ nào ở tầng 1–2; chọn `available_at` sớm nhất |
 
 ```sql
 SELECT qs.id
@@ -293,27 +311,52 @@ WHERE qs.skill_key = :skillKey
   AND qs.language = :language
 ORDER BY
   CASE WHEN u.id IS NULL THEN 0
-       WHEN u.last_used_at < :cutoff THEN 1
+       WHEN u.available_at IS NOT NULL AND u.available_at <= :now THEN 1
        ELSE 2 END,
-  COALESCE(u.last_used_at, '1970-01-01') ASC,
+  COALESCE(u.available_at, '1970-01-01') ASC,
   qs.times_used ASC,
   qs.id ASC
 LIMIT 1
 ```
 
-`:cutoff = now - redo-after-days`. Cài đặt bằng JPQL/Criteria trong repository, không dùng native query.
+Cài đặt bằng JPQL/Criteria trong repository, không dùng native query.
 
 Sau khi chọn — ghi **cả 2 nơi**:
 
 ```
-user_set_usage  upsert (user_id, set_id): use_count += 1, last_used_at = now
+user_set_usage  upsert (user_id, set_id): use_count += 1, last_used_at = now, available_at = NULL
 question_set    times_used += 1
 question        WHERE set_id = ? AND review_status <> 'REJECTED' ORDER BY archetype, id
 ```
 
-Nếu set còn < `needed` câu do bị `REJECTED` → **trả ít hơn**, không trộn set khác (giữ mạch liên kết). Response trả `requested` / `served`.
+`available_at = NULL` khi vừa cấp (đang làm dở); chỉ được tính khi topic hoàn thành (§4.7).
 
-### 7.4 Ghi khi giao cho topic
+Nếu set còn < `needed` câu do bị `REJECTED` → **trả ít hơn**, không trộn set khác (giữ mạch liên kết). Response trả `requested` / `served`. Admin bù bằng API §7.4.
+
+### 7.4 Admin thêm câu thủ công
+
+```
+POST /api/v1/admin/question-sets/{id}/questions
+  { questionText, correctAnswer, explanation, archetype, options? }
+```
+
+- `content_key` = tính lại từ `questionText`; trùng với câu đã có trong cell → **409**, không lưu.
+- `review_status = APPROVED` (admin tạo thì duyệt luôn), `set_id` = bộ đích, `topic_id = NULL`.
+- `fingerprint` tính như cũ → vẫn được bảo vệ bởi unique toàn cục.
+- Không cập nhật `archetype_quota` — quota chỉ là ảnh chụp lúc AI sinh.
+
+### 7.5 User chủ động làm lại bộ
+
+```
+POST /api/v1/study/sets/{setId}/redo
+→ tạo study_topic mới trong program hiện tại gắn đúng set đó
+```
+
+- Bỏ qua cooldown: đặt `available_at = now` trước khi cấp.
+- Không đụng `user_set_usage.use_count` theo chiều tăng bất thường — vẫn +1 mỗi lần cấp.
+- Hạn mức số lần gọi API này là chức năng riêng (D8), spec này không chặn.
+
+### 7.6 Ghi khi giao cho topic
 
 Như hiện tại, thêm 2 điểm:
 
@@ -324,7 +367,7 @@ question (bản copy): topic_id = topic.id, pool_question_id = pool row id,
 study_topic.set_id  = set_id
 ```
 
-### 7.5 Review hậu kiểm
+### 7.7 Review hậu kiểm
 
 ```
 GET   /api/v1/admin/question-sets?skillKey=&difficulty=&scope=&page=
@@ -352,7 +395,11 @@ study:
     max-target-size: 20
     existing-text-limit: 30
     auto-create: true
-    redo-after-days: 14
+    redo-after-days: 4
+    redo-after-days-low-score: 1
+    redo-after-days-high-score: 14
+    score-low-threshold: 6
+    score-high-threshold: 8
     archetype-quota:
       DEFINITION: 2
       COMPARISON: 2
@@ -380,7 +427,10 @@ Unit test offline (harness hiện tại, không cần Docker/MySQL), **phải đ
 |---|---|
 | `QuestionContentKeyTest` | bỏ stopword, giữ phủ định, synonym, đảo trật tự token ra cùng key |
 | `QuestionSetServiceImplTest` | tạo set, quota lệch, archetype lạ, set_name unique |
-| `QuestionSetRotationTest` | 3 tầng ưu tiên, cooldown hết hạn → cấp lại, hết bộ → tạo mới |
+| `QuestionSetRotationTest` | 3 tầng ưu tiên, `available_at` tới hạn → cấp lại, hết bộ → tạo mới |
+| `SetCooldownTest` | điểm TB < 6 → 1 ngày; 6–8 → 4 ngày; ≥ 8 → 14 ngày; chưa trả lời → 4 ngày |
+| `AdminAddQuestionTest` | thêm câu vào bộ, `review_status = APPROVED`, trùng `content_key` → 409 |
+| `UserRedoSelfServiceTest` | redo bỏ qua cooldown, `available_at` = now |
 | `QuestionPoolServiceImplTest` (sửa) | `acquire` trả nguyên bộ; set thiếu câu → `served < requested` |
 | `StudyProgramServiceImplTest` (mới) | ghi `study_topic.set_id`, bản copy có `content_key = NULL` |
 
