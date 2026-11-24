@@ -366,11 +366,27 @@ public class PayosServiceImpl implements PayosService {
         return true;
     }
 
-    /** description lúc tạo đơn: NAPTIEN&lt;id&gt; (legacy, tối đa 2 chữ số) hoặc NAP&lt;id 6 chữ số&gt;. */
+    /**
+     * description lúc tạo đơn: NAP&lt;id 6 chữ số&gt; (định dạng mới, parse trực tiếp) hoặc
+     * NAPTIEN&lt;id&gt; (legacy, bị cắt 9 ký tự nên chỉ tin khi prefix xác định duy nhất 1 user).
+     */
     private Long extractUserId(String description) {
         if (isBlank(description)) return null;
-        Matcher m = Pattern.compile("^(?:NAPTIEN|NAP)(\\d{1,6})$")
-                .matcher(description.trim().toUpperCase(Locale.ROOT));
+        String raw = description.trim().toUpperCase(Locale.ROOT);
+
+        Matcher legacy = Pattern.compile("^NAPTIEN(\\d{1,2})$").matcher(raw);
+        if (legacy.matches()) {
+            String prefix = legacy.group(1);
+            if (userRepository.countByIdPrefix(prefix) != 1L) return null;
+            try {
+                long id = Long.parseLong(prefix);
+                return id > 0 ? id : null;
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+
+        Matcher m = Pattern.compile("^NAP(\\d{6})$").matcher(raw);
         if (!m.matches()) return null;
         try {
             long id = Long.parseLong(m.group(1));

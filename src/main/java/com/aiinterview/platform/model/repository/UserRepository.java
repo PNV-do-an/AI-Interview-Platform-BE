@@ -16,6 +16,10 @@ public interface UserRepository {
     Optional<User> findByResetToken(String resetToken);
     User save(User user);
     Optional<User> findById(Long id);
+
+    /** Số user có id bắt đầu bằng prefix — dùng để resolve description payOS bị cắt 9 ký tự. */
+    long countByIdPrefix(String prefix);
+
     List<User> findAllById(Iterable<Long> ids);
     void deleteAll();
 

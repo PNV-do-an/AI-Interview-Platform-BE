@@ -52,6 +52,10 @@ public interface JpaUserRepository extends JpaRepository<User, Long>, UserReposi
     String DELETED_FILTERED = "u.deletedAt IS NOT NULL AND " + SEARCH_PREDICATE + " AND " + ROLE_PREDICATE;
 
     @Override
+    @Query("SELECT COUNT(u.id) FROM User u WHERE STR(u.id) LIKE CONCAT(:prefix, '%')")
+    long countByIdPrefix(@Param("prefix") String prefix);
+
+    @Override
     Optional<User> findByEmail(String email);
 
     @Override
