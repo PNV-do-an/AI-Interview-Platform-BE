@@ -5,7 +5,6 @@ import com.aiinterview.platform.common.util.SkillMatcher;
 import com.aiinterview.platform.model.dto.response.PositionRecommendationResponse;
 import com.aiinterview.platform.model.entity.PositionCatalog;
 import com.aiinterview.platform.model.entity.PositionRequiredSkill;
-import com.aiinterview.platform.model.entity.UserSkill;
 import com.aiinterview.platform.model.repository.PositionCatalogRepository;
 import com.aiinterview.platform.model.repository.UserCvRepository;
 import com.aiinterview.platform.model.repository.UserSkillRepository;
@@ -64,12 +63,14 @@ public class PositionRecommendationServiceImpl implements PositionRecommendation
         return toResponse(position, loadCvSkillKeys(userId));
     }
 
+    /**
+     * Tập khóa kỹ năng của CV: mỗi kỹ năng được mở rộng thành tất cả biến thể so khớp
+     * ("RESTful APIs" -> rest api, "HTML/CSS" -> html + css).
+     */
     private Set<String> loadCvSkillKeys(Long userId) {
         return userCvRepository.findTopByUserIdOrderByUpdatedAtDesc(userId)
                 .map(cv -> userSkillRepository.findByCvId(cv.getId()).stream()
-                        .map(UserSkill::getSkillName)
-                        .map(SkillMatcher::normalize)
-                        .filter(key -> !key.isBlank())
+                        .flatMap(skill -> SkillMatcher.keys(skill.getSkillName()).stream())
                         .collect(Collectors.toCollection(LinkedHashSet::new)))
                 .orElseGet(LinkedHashSet::new);
     }
@@ -78,7 +79,8 @@ public class PositionRecommendationServiceImpl implements PositionRecommendation
         List<String> matched = new ArrayList<>();
         List<String> missing = new ArrayList<>();
         for (PositionRequiredSkill required : position.getRequiredSkills()) {
-            if (cvSkillKeys.contains(required.getSkillKey())) {
+            // skill_key là khóa đã chuẩn hóa lúc ghi; skill_name là fallback cho dữ liệu cũ.
+            if (SkillMatcher.matches(cvSkillKeys, required.getSkillKey(), required.getSkillName())) {
                 matched.add(required.getSkillName());
             } else {
                 missing.add(required.getSkillName());

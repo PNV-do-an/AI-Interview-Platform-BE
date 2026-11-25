@@ -48,6 +48,15 @@ public class UserCv {
     @Column(name = "target_position")
     private String targetPosition;
 
+    /**
+     * Vị trí đích chọn từ position_catalog trước khi upload.
+     * Lưu id thường (không @ManyToOne) vì {@code open-in-view = false} và {@code getCv()} đọc
+     * ngoài transaction: một quan hệ lazy sẽ nổ LazyInitializationException khi serialize.
+     * Giá trị vẫn được validate với catalog lúc ghi (xem CvServiceImpl#resolveTargetPosition).
+     */
+    @Column(name = "target_position_id")
+    private Long targetPositionId;
+
     @Column(name = "target_level")
     private String targetLevel;
 

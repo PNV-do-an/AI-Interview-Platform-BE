@@ -24,6 +24,9 @@ public interface PositionCatalogRepository extends JpaRepository<PositionCatalog
             + "where p.id = :id and p.active = true")
     Optional<PositionCatalog> findActiveWithSkillsById(@Param("id") Long id);
 
+    /** Validate vị trí đích lúc user chọn (không kéo theo requiredSkills). */
+    Optional<PositionCatalog> findByIdAndActiveTrue(Long id);
+
     /** Dung cho admin: lay ca vi tri da ngung hoat dong. */
     @Query("select distinct p from PositionCatalog p left join fetch p.requiredSkills where p.id = :id")
     Optional<PositionCatalog> findWithSkillsById(@Param("id") Long id);

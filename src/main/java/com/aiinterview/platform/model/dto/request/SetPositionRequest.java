@@ -11,4 +11,10 @@ public class SetPositionRequest {
 
     @NotBlank(message = "Level is required")
     private String level;
+
+    /**
+     * Id vị trí trong catalog. Khi có, title của catalog được ghi đè lên {@code position}
+     * để hai cột target_position / target_position_id không mâu thuẫn.
+     */
+    private Long positionId;
 }

@@ -73,6 +73,23 @@ class PositionRecommendationServiceImplTest {
     }
 
     @Test
+    void matchesPluralAndCompoundSkillsFromRealCv() {
+        // Arrange: CV do AI bóc ra ghi "RESTful APIs" và "HTML/CSS" (số nhiều + viết gộp)
+        givenCvSkills("RESTful APIs", "HTML/CSS", "Spring Boot");
+        givenPositions(position(1L, "Frontend React Engineer", "HTML", "CSS", "REST API", "React"));
+
+        // Act
+        List<PositionRecommendationResponse> result = service.recommend(USER_ID, 10);
+
+        // Assert: 3/4 khớp — "RESTful APIs" không còn bị báo thiếu "REST API"
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getMatchedSkillCount()).isEqualTo(3);
+        assertThat(result.get(0).getMatchPercentage()).isEqualTo(75);
+        assertThat(result.get(0).getMatchedSkills()).containsExactly("CSS", "HTML", "REST API");
+        assertThat(result.get(0).getMissingSkills()).containsExactly("React");
+    }
+
+    @Test
     void ranksByMatchedCountThenPercentageThenTitle() {
         // Arrange: 4 vị trí — A và C cùng khớp 4 kỹ năng nhưng C ít yêu cầu hơn (100% so với 67%),
         // B khớp 1, D không khớp gì

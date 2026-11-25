@@ -40,6 +40,19 @@ public class CvParseResponse {
     private String targetPosition;
     private String targetLevel;
 
+    /** Vị trí user chọn trước khi upload; null = không chọn, chạy như luồng cũ. */
+    private Long targetPositionId;
+
+    /**
+     * Điểm khớp của đúng vị trí đích. Khác recommendedPositions ở chỗ không bị lọc bởi
+     * "matched > 0" nên FE luôn hiển thị được vị trí user đã chọn dù nó kém.
+     */
+    private PositionRecommendationResponse targetPositionMatch;
+
+    /** Mã cảnh báo cho FE xử lý; hiện tại chỉ có POSITION_MISMATCH. */
+    @Builder.Default
+    private List<String> warnings = new ArrayList<>();
+
     @Data
     @Builder
     @NoArgsConstructor

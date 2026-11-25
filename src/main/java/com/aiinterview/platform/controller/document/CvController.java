@@ -27,14 +27,15 @@ public class CvController {
     private final CvService cvService;
     private final UserService userService;
 
-    /** POST /api/v1/cv/upload — upload PDF/text, AI phân tích */
+    /** POST /api/v1/cv/upload — upload PDF/text, AI phân tích (targetPositionId tuỳ chọn) */
     @PostMapping("/upload")
     public ResponseEntity<ApiResponse<CvParseResponse>> uploadCv(
             @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "targetPositionId", required = false) Long targetPositionId,
             Authentication authentication) {
         User user = currentUser(authentication);
         return ResponseEntity.ok(ApiResponse.success("Phân tích CV thành công",
-                cvService.uploadCv(file, user)));
+                cvService.uploadCv(file, user, targetPositionId)));
     }
 
     /** POST /api/v1/cv/parse-text — paste CV text, AI phân tích */
@@ -44,7 +45,7 @@ public class CvController {
             Authentication authentication) {
         User user = currentUser(authentication);
         return ResponseEntity.ok(ApiResponse.success("Phân tích CV thành công",
-                cvService.parseCvText(request.getCvText(), user)));
+                cvService.parseCvText(request.getCvText(), user, request.getTargetPositionId())));
     }
 
     /** GET /api/v1/cv — CV mới nhất của user */
@@ -61,7 +62,8 @@ public class CvController {
             Authentication authentication) {
         User user = currentUser(authentication);
         return ResponseEntity.ok(ApiResponse.success("Đã cập nhật vị trí mục tiêu",
-                cvService.setPosition(user.getId(), request.getPosition(), request.getLevel())));
+                cvService.setPosition(user.getId(), request.getPositionId(),
+                        request.getPosition(), request.getLevel())));
     }
 
     /** GET /api/v1/cv/skills — danh sách kỹ năng từ CV (trả DTO, không trả entity) */

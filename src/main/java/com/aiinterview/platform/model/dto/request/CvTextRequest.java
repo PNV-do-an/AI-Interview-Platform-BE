@@ -8,4 +8,7 @@ public class CvTextRequest {
 
     @NotBlank(message = "CV text is required")
     private String cvText;
+
+    /** Vị trí đích chọn trước khi parse; bỏ trống được (client cũ). */
+    private Long targetPositionId;
 }

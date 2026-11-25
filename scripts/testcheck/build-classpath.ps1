@@ -26,6 +26,11 @@ $allow = @(
   # RestClient.builder() trong EmailServiceImpl cần ObservationRegistry (micrometer, version theo Boot 3.2.5)
   'io/micrometer/micrometer-observation/1.12.5/micrometer-observation-1.12.5.jar',
   'io/micrometer/micrometer-commons/1.12.5/micrometer-commons-1.12.5.jar',
+  # PDFBox: CvServiceImpl dùng Loader/PDDocument/PDFTextStripper — bắt buộc khi rebuild-main.ps1
+  'org/apache/pdfbox/pdfbox/3.0.1/pdfbox-3.0.1.jar',
+  'org/apache/pdfbox/pdfbox-io/3.0.1/pdfbox-io-3.0.1.jar',
+  'org/apache/pdfbox/fontbox/3.0.1/fontbox-3.0.1.jar',
+  'commons-logging/commons-logging/1.2/commons-logging-1.2.jar',
   'org/springframework/data/spring-data-commons/3.2.5/spring-data-commons-3.2.5.jar',
   'org/springframework/data/spring-data-jpa/3.2.5/spring-data-jpa-3.2.5.jar',
   'jakarta/transaction/jakarta.transaction-api/2.0.1/jakarta.transaction-api-2.0.1.jar',

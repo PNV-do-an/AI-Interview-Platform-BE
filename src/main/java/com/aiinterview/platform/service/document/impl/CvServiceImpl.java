@@ -4,11 +4,14 @@ import com.aiinterview.platform.common.exception.AIServiceException;
 import com.aiinterview.platform.common.exception.BadRequestException;
 import com.aiinterview.platform.common.exception.ResourceNotFoundException;
 import com.aiinterview.platform.model.dto.response.CvParseResponse;
+import com.aiinterview.platform.model.dto.response.PositionRecommendationResponse;
 import com.aiinterview.platform.model.dto.response.SkillResponse;
+import com.aiinterview.platform.model.entity.PositionCatalog;
 import com.aiinterview.platform.model.entity.User;
 import com.aiinterview.platform.model.entity.UserCv;
 import com.aiinterview.platform.model.entity.UserSkill;
 import com.aiinterview.platform.model.enums.ProficiencyLevel;
+import com.aiinterview.platform.model.repository.PositionCatalogRepository;
 import com.aiinterview.platform.model.repository.UserCvRepository;
 import com.aiinterview.platform.model.repository.UserSkillRepository;
 import com.aiinterview.platform.service.document.CvService;
@@ -44,19 +47,31 @@ public class CvServiceImpl implements CvService {
 
     private static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
     private static final int RECOMMENDATION_LIMIT = 5;
+    private static final String POSITION_MISMATCH = "POSITION_MISMATCH";
 
     private final UserCvRepository userCvRepository;
     private final UserSkillRepository userSkillRepository;
     private final OpenAiClient openAiClient;
     private final PositionRecommendationService positionRecommendationService;
+    private final PositionCatalogRepository positionCatalogRepository;
     private final ObjectMapper objectMapper;
 
     @Value("${storage.cv-upload-dir:./uploads/cv}")
     private String cvUploadDir;
 
+    /**
+     * Lệch tối thiểu (điểm phần trăm) giữa vị trí đích và gợi ý tốt nhất để cảnh báo
+     * POSITION_MISMATCH. Có giá trị mặc định để test đơn vị (tạo bằng constructor) vẫn chạy đúng.
+     */
+    @Value("${app.cv.position-mismatch-min-gap:20}")
+    private int positionMismatchMinGap = 20;
+
     @Override
     @Transactional
-    public CvParseResponse uploadCv(MultipartFile file, User user) {
+    public CvParseResponse uploadCv(MultipartFile file, User user, Long targetPositionId) {
+        // Validate trước khi gọi AI: sai id thì fail ngay, không tốn token và không lưu CV
+        String targetPositionTitle = resolveTargetPosition(targetPositionId);
+
         String contentType = resolveContentType(file);
         if (contentType == null) {
             throw new BadRequestException("Chỉ hỗ trợ file PDF hoặc text (.pdf/.txt)");
@@ -73,17 +88,18 @@ public class CvServiceImpl implements CvService {
         String fileName = persistCvFile(file);
         CvParseResponse parsed = openAiClient.parseCv(rawText);
         parsed.setFileName(fileName);
-        return persistParsed(user, rawText, fileName, storageDir(), parsed);
+        return persistParsed(user, rawText, fileName, storageDir(), parsed, targetPositionId, targetPositionTitle);
     }
 
     @Override
     @Transactional
-    public CvParseResponse parseCvText(String cvText, User user) {
+    public CvParseResponse parseCvText(String cvText, User user, Long targetPositionId) {
         if (cvText == null || cvText.isBlank()) {
             throw new BadRequestException("CV text không được để trống");
         }
+        String targetPositionTitle = resolveTargetPosition(targetPositionId);
         CvParseResponse parsed = openAiClient.parseCv(cvText);
-        return persistParsed(user, cvText, null, null, parsed);
+        return persistParsed(user, cvText, null, null, parsed, targetPositionId, targetPositionTitle);
     }
 
     @Override
@@ -96,11 +112,17 @@ public class CvServiceImpl implements CvService {
 
     @Override
     @Transactional
-    public CvParseResponse setPosition(Long userId, String position, String level) {
+    public CvParseResponse setPosition(Long userId, Long positionId, String position, String level) {
         UserCv cv = userCvRepository.findByUserId(userId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Chưa có CV nào. Hãy upload hoặc parse CV trước khi chọn vị trí"));
-        cv.setTargetPosition(position);
+        if (positionId != null) {
+            PositionCatalog catalog = findActivePosition(positionId);
+            cv.setTargetPositionId(catalog.getId());
+            cv.setTargetPosition(catalog.getTitle());
+        } else {
+            cv.setTargetPosition(position);
+        }
         cv.setTargetLevel(level);
         return attachRecommendations(toResponse(userCvRepository.save(cv)), userId);
     }
@@ -124,7 +146,8 @@ public class CvServiceImpl implements CvService {
     }
 
     private CvParseResponse persistParsed(User user, String rawText, String fileName, String filePath,
-                                          CvParseResponse parsed) {
+                                          CvParseResponse parsed, Long targetPositionId,
+                                          String targetPositionTitle) {
         UserCv cv = userCvRepository.findByUserId(user.getId())
                 .orElseGet(() -> UserCv.builder().user(user).build());
 
@@ -136,6 +159,13 @@ public class CvServiceImpl implements CvService {
         cv.setParsedEducation(toJson(parsed.getEducation()));
         cv.setSuggestedPositions(toJson(parsed.getSuggestedPositions()));
         cv.setKnowledgeGaps(toJson(parsed.getKnowledgeGaps()));
+        if (targetPositionId != null) {
+            cv.setTargetPositionId(targetPositionId);
+            cv.setTargetPosition(targetPositionTitle);
+        }
+        parsed.setTargetPositionId(cv.getTargetPositionId());
+        parsed.setTargetPosition(cv.getTargetPosition());
+        parsed.setTargetLevel(cv.getTargetLevel());
 
         UserCv saved = userCvRepository.save(cv);
         replaceSkills(saved, parsed.getSkills());
@@ -150,7 +180,51 @@ public class CvServiceImpl implements CvService {
         } catch (RuntimeException e) {
             log.warn("Không tính được gợi ý vị trí cho user {}: {}", userId, e.getMessage());
         }
+        attachTargetPosition(response, userId);
         return response;
+    }
+
+    /**
+     * Vị trí đích là "luồng chính": luôn trả breakdown của nó (kể cả khi bị bộ lọc matched > 0
+     * loại khỏi recommendedPositions) và gắn cảnh báo POSITION_MISMATCH khi nó kém hơn hẳn
+     * gợi ý tốt nhất. Không chặn người dùng, và không làm hỏng response nếu tính lỗi.
+     */
+    private void attachTargetPosition(CvParseResponse response, Long userId) {
+        Long targetPositionId = response.getTargetPositionId();
+        if (targetPositionId == null) {
+            return;
+        }
+        PositionRecommendationResponse target;
+        try {
+            target = positionRecommendationService.matchPosition(userId, targetPositionId);
+        } catch (RuntimeException e) {
+            log.warn("Không tính được điểm vị trí đích {} của user {}: {}",
+                    targetPositionId, userId, e.getMessage());
+            return;
+        }
+        response.setTargetPositionMatch(target);
+
+        List<PositionRecommendationResponse> ranked = response.getRecommendedPositions();
+        if (ranked == null || ranked.isEmpty()) {
+            return;
+        }
+        PositionRecommendationResponse best = ranked.get(0);
+        if (best.getPositionId().equals(target.getPositionId())) {
+            return;
+        }
+        if (best.getMatchPercentage() - target.getMatchPercentage() >= positionMismatchMinGap) {
+            response.getWarnings().add(POSITION_MISMATCH);
+        }
+    }
+
+    /** Trả về title của vị trí đích, ném 404 nếu id không tồn tại hoặc vị trí đã bị ẩn. */
+    private String resolveTargetPosition(Long targetPositionId) {
+        return targetPositionId == null ? null : findActivePosition(targetPositionId).getTitle();
+    }
+
+    private PositionCatalog findActivePosition(Long positionId) {
+        return positionCatalogRepository.findByIdAndActiveTrue(positionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Vị trí không tồn tại"));
     }
 
     private void replaceSkills(UserCv cv, List<CvParseResponse.SkillData> skills) {
@@ -182,6 +256,7 @@ public class CvServiceImpl implements CvService {
                 .suggestedPositions(readList(cv.getSuggestedPositions(), new TypeReference<>() {}))
                 .knowledgeGaps(readList(cv.getKnowledgeGaps(), new TypeReference<>() {}))
                 .targetPosition(cv.getTargetPosition())
+                .targetPositionId(cv.getTargetPositionId())
                 .targetLevel(cv.getTargetLevel())
                 .build();
     }
