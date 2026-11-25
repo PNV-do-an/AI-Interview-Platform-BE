@@ -60,32 +60,41 @@ CREATE TABLE IF NOT EXISTS user_set_usage (
 
 -- 4. Cột mới trên các bảng đang có (MySQL 8 không có ADD COLUMN IF NOT EXISTS
 --    nên phải guard bằng INFORMATION_SCHEMA + prepared statement).
+--
+--    Guard phải kiểm cả sự tồn tại của bảng: trên DB trắng, V1..V10 không tạo question/
+--    study_* nên ALTER sẽ chết. Thiếu bảng thì bỏ qua, V13 baseline tạo đủ bảng + cột.
+SET @has_question := EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question');
+SET @has_study_topic := EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'study_topic');
+SET @has_study_answer := EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'study_answer');
+SET @has_study_program := EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'study_program');
 
-SET @sql := IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question' AND COLUMN_NAME = 'set_id'), 'DO 0', 'ALTER TABLE question ADD COLUMN set_id BIGINT NULL');
+SET @sql := IF(@has_question = 0 OR EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question' AND COLUMN_NAME = 'set_id'), 'DO 0', 'ALTER TABLE question ADD COLUMN set_id BIGINT NULL');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @sql := IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question' AND COLUMN_NAME = 'archetype'), 'DO 0', 'ALTER TABLE question ADD COLUMN archetype VARCHAR(20) NULL');
+SET @sql := IF(@has_question = 0 OR EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question' AND COLUMN_NAME = 'archetype'), 'DO 0', 'ALTER TABLE question ADD COLUMN archetype VARCHAR(20) NULL');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @sql := IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question' AND COLUMN_NAME = 'content_key'), 'DO 0', 'ALTER TABLE question ADD COLUMN content_key VARCHAR(64) NULL');
+SET @sql := IF(@has_question = 0 OR EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question' AND COLUMN_NAME = 'content_key'), 'DO 0', 'ALTER TABLE question ADD COLUMN content_key VARCHAR(64) NULL');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @sql := IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question' AND COLUMN_NAME = 'review_status'), 'DO 0', 'ALTER TABLE question ADD COLUMN review_status VARCHAR(16) NOT NULL DEFAULT ''AUTO_APPROVED''');
+SET @sql := IF(@has_question = 0 OR EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question' AND COLUMN_NAME = 'review_status'), 'DO 0', 'ALTER TABLE question ADD COLUMN review_status VARCHAR(16) NOT NULL DEFAULT ''AUTO_APPROVED''');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- Bản copy giao cho topic có content_key = NULL; MySQL cho phép nhiều NULL
 -- trong unique index nên bản copy không vướng ràng buộc này.
-SET @sql := IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question' AND INDEX_NAME = 'uk_question_skill_content'), 'DO 0', 'CREATE UNIQUE INDEX uk_question_skill_content ON question (skill_key, content_key)');
+-- Điều kiện phụ `skill_key` tồn tại: bảng question do V8 tạo ở DB trắng không có cột này,
+-- tạo index sẽ chết; trường hợp đó để V13 lấp cột rồi tạo index.
+SET @sql := IF(@has_question = 0 OR NOT EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question' AND COLUMN_NAME = 'skill_key') OR EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question' AND INDEX_NAME = 'uk_question_skill_content'), 'DO 0', 'CREATE UNIQUE INDEX uk_question_skill_content ON question (skill_key, content_key)');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @sql := IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'study_topic' AND COLUMN_NAME = 'set_id'), 'DO 0', 'ALTER TABLE study_topic ADD COLUMN set_id BIGINT NULL');
+SET @sql := IF(@has_study_topic = 0 OR EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'study_topic' AND COLUMN_NAME = 'set_id'), 'DO 0', 'ALTER TABLE study_topic ADD COLUMN set_id BIGINT NULL');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- study_answer: chỉ 2 cột (D20, D21) — KHÔNG đổi UNIQUE (topic_id, question_id)
 -- và KHÔNG đụng updateProgress.
-SET @sql := IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'study_answer' AND COLUMN_NAME = 'ai_evaluation'), 'DO 0', 'ALTER TABLE study_answer ADD COLUMN ai_evaluation TEXT NULL, ADD COLUMN graded_at DATETIME NULL');
+SET @sql := IF(@has_study_answer = 0 OR EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'study_answer' AND COLUMN_NAME = 'ai_evaluation'), 'DO 0', 'ALTER TABLE study_answer ADD COLUMN ai_evaluation TEXT NULL, ADD COLUMN graded_at DATETIME NULL');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- study_program: cache nhận xét tổng (D23).
-SET @sql := IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'study_program' AND COLUMN_NAME = 'ai_summary'), 'DO 0', 'ALTER TABLE study_program ADD COLUMN ai_summary TEXT NULL, ADD COLUMN ai_summary_at DATETIME NULL');
+SET @sql := IF(@has_study_program = 0 OR EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'study_program' AND COLUMN_NAME = 'ai_summary'), 'DO 0', 'ALTER TABLE study_program ADD COLUMN ai_summary TEXT NULL, ADD COLUMN ai_summary_at DATETIME NULL');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

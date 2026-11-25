@@ -189,7 +189,7 @@ Bỏ `source` thì mất điểm (1): AI bị khoá vĩnh viễn vào nhãn đ�
 
 ### 4.9 Migration
 
-Flyway đã bật (`spring.flyway.enabled=true`, `ddl-auto=validate`) — schema đi qua file `src/main/resources/db/migration/V12__question_set_bank.sql`. File vẫn giữ guard `INFORMATION_SCHEMA` vì DB dev hiện có sẵn schema do `ddl-auto` dựng trước đó; từ V13 trở đi dùng DDL thuần. Lệnh dưới đây là nội dung của migration đó:
+Flyway đã bật (`spring.flyway.enabled=true`, `ddl-auto=validate`) — schema đi qua `V12__question_set_bank.sql`. V12 vẫn giữ guard `INFORMATION_SCHEMA` vì DB dev đã có sẵn schema do `ddl-auto` dựng trước đó; `V13__baseline_schema.sql` là migration "ensure" sinh tự động, lấp phần V1..V12 còn thiếu trên DB trắng nên CI/máy mới dựng được schema đầy đủ. Từ V14 trở đi dùng DDL thuần. Lệnh dưới đây là nội dung của V12:
 
 ```sql
 CREATE TABLE question_set (
