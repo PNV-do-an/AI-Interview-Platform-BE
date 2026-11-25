@@ -85,7 +85,7 @@ class QuestionPoolServiceImplTest {
 
         // Act
         var acquired = service.acquire("Backend", "Docker", DifficultyLevel.BEGINNER,
-                QuestionType.SHORT_ANSWER, "en", 0, 1L);
+                QuestionType.ESSAY, "en", 0, 1L);
 
         // Assert: trả rỗng và không chạm DB/AI — nhánh thoát sớm
         assertThat(acquired).isEmpty();

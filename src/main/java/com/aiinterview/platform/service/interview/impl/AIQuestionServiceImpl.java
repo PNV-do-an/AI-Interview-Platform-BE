@@ -141,7 +141,7 @@ public class AIQuestionServiceImpl implements AIQuestionService {
 
     private String serializeOptions(JsonNode item, QuestionType type) {
         JsonNode options = item.path("options");
-        if (!options.isArray() || options.isEmpty() || type != QuestionType.MCQ) {
+        if (!options.isArray() || options.isEmpty() || !type.isMultipleChoice()) {
             return null;
         }
         try {
@@ -204,7 +204,7 @@ public class AIQuestionServiceImpl implements AIQuestionService {
 
     private String buildQuestionPrompt(String position, String skill,
                                        DifficultyLevel difficulty, QuestionType type, int count) {
-        boolean mcq = type == QuestionType.MCQ;
+        boolean mcq = type.isMultipleChoice();
         String optionsRule = mcq
                 ? "- For MCQ questions: provide exactly 4 options as an array of objects "
                 + "[{\"key\": \"A\", \"text\": \"Option text\"}, ...] and set \"correct_answer\" to the key (e.g. \"A\") of the correct option.\n"

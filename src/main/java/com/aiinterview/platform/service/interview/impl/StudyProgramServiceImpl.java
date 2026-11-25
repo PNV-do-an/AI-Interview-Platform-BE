@@ -119,7 +119,7 @@ public class StudyProgramServiceImpl implements StudyProgramService {
 
             List<Question> questions = questionPoolService.acquire(
                     position, topicPlan.skillTag(), topicPlan.difficulty(),
-                    QuestionType.SHORT_ANSWER, questionLanguage, perTopic, user.getId());
+                    QuestionType.ESSAY, questionLanguage, perTopic, user.getId());
 
             int count = 0;
             for (Question q : questions) {
