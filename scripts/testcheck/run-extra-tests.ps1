@@ -1,9 +1,13 @@
-# Batch 3 - cac test tung nam ngoai harness (40 test / 8 class), chay duoc offline.
+# Batch 3 - các test từng nằm ngoài harness (49 test / 9 class), chạy được offline.
 # Khong gom TwoFactorIntegrationTest vi no can Docker + MySQL (@SpringBootTest + Testcontainers).
+# Thưc hiện test các chức năng phụ liên quan đến các chức năng chính. 
 $root = 'src/test/java/com/aiinterview/platform'
 
 $sources = @(
   "$root/service/job/impl/PositionRecommendationServiceImplTest.java",
+  "$root/common/util/SkillMatcherTest.java",
+  "$root/common/util/SkillKeysTest.java",
+  "$root/common/util/QuestionContentKeyTest.java",
   "$root/service/interview/impl/QuestionPoolServiceImplTest.java",
   "$root/service/interview/impl/InterviewReminderServiceImplTest.java",
   "$root/service/document/impl/CvServiceImplTest.java",
@@ -15,6 +19,9 @@ $sources = @(
 
 $tests = @(
   'com.aiinterview.platform.service.job.impl.PositionRecommendationServiceImplTest',
+  'com.aiinterview.platform.common.util.SkillMatcherTest',
+  'com.aiinterview.platform.common.util.SkillKeysTest',
+  'com.aiinterview.platform.common.util.QuestionContentKeyTest',
   'com.aiinterview.platform.service.interview.impl.QuestionPoolServiceImplTest',
   'com.aiinterview.platform.service.interview.impl.InterviewReminderServiceImplTest',
   'com.aiinterview.platform.service.document.impl.CvServiceImplTest',
