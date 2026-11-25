@@ -54,6 +54,14 @@ public class StudyAnswer {
     @Column(name = "submitted_at", nullable = false)
     private LocalDateTime submittedAt;
 
+    // Toàn bộ kết quả chấm của AI dưới dạng JSON (score, feedback, modelAnswer,
+    // strengths, improvements). Trước đây chỉ giữ score nên feedback bị mất (D21).
+    @Column(name = "ai_evaluation", columnDefinition = "TEXT")
+    private String aiEvaluation;
+
+    @Column(name = "graded_at")
+    private LocalDateTime gradedAt;
+
     @PrePersist
     protected void onCreate() {
         if (submittedAt == null) {

@@ -13,13 +13,19 @@ spring:
     # thay vì âm thầm chạy SQL trong lúc serialize response.
     open-in-view: false
     hibernate:
-      ddl-auto: update
+      # Schema do flyway quản lý; Hibernate chỉ kiểm tra entity khớp DB và fail ngay khi lệch.
+      # Không dùng update: hai nơi cùng ghi schema sẽ đè lên nhau và làm mất lịch sử migration.
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
   flyway:
-    enabled: false
+    enabled: true
+    # DB dev hiện có schema do ddl-auto dựng sẵn đủ cho V1..V10, nên baseline ở 10 để flyway không
+    # chạy lại chúng trên schema đã tồn tại, rồi áp V11 + V12. DB trắng thì baseline không kích hoạt.
+    baseline-on-migrate: true
+    baseline-version: 10
   # SMTP: đường gửi mail chính (Gmail App Password). Bật bằng cách đặt MAIL_USERNAME +
   # MAIL_PASSWORD; bỏ trống thì EmailServiceImpl rơi về Gmail API. Host để rỗng chứ không
   # mặc định smtp.gmail.com: để rỗng thì JavaMailSender không được tạo và không ai gửi nhầm
@@ -69,6 +75,10 @@ app:
     expiration: 86400000
     refresh-expiration: 604800000
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
+  # Scan CV: ngưỡng lệch (điểm phần trăm) giữa vị trí user chọn và gợi ý tốt nhất để gắn
+  # cảnh báo POSITION_MISMATCH. Cảnh báo không chặn upload, chỉ để FE gợi ý đổi vị trí.
+  cv:
+    position-mismatch-min-gap: ${CV_POSITION_MISMATCH_MIN_GAP:20}
   # Cào JD IT TopCV bằng một nút bấm: URL danh sách mặc định + giới hạn mỗi lần.
   # Có thể override bằng env khi deploy. Proxy/cookie dùng khi TopCV chặn IP server.
   topcv:

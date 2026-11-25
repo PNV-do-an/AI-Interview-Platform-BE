@@ -9,7 +9,7 @@ Phạm vi: phase 1 (study program). Interview để phase 2.
 - Mọi AI call nằm **ngoài transaction**; transaction chỉ bọc bước ghi.
 - Harness offline: sửa `src/main` thì phải chạy `scripts\testcheck\rebuild-main.ps1 -SourceList '<file1>,<file2>'` trước khi chạy suite, nếu không test sẽ `NoSuchMethodError`.
 - Test mới phải đăng ký vào `scripts\testcheck\run-extra-tests.ps1` (cả `$sources` và `$tests`).
-- Không thêm file `.sql` vào `db/migration` (flyway đang tắt) — SQL chạy tay.
+- Schema đi qua flyway: `spring.flyway.enabled=true`, `ddl-auto=validate`, file mới đặt ở `src/main/resources/db/migration/V<n>__*.sql`.
 
 ## Phát hiện cần dùng lại (không tạo mới)
 
@@ -27,7 +27,7 @@ Phạm vi: phase 1 (study program). Interview để phase 2.
 ### File mới
 
 ```
-scripts/sql/2026-11-24-question-set-bank.sql          (nội dung §4.9 của spec)
+src/main/resources/db/migration/V12__question_set_bank.sql   (nội dung §4.9 của spec)
 src/main/java/com/aiinterview/platform/model/enums/QuestionArchetype.java
 src/main/java/com/aiinterview/platform/model/enums/QuestionSetScope.java
 src/main/java/com/aiinterview/platform/model/enums/QuestionReviewStatus.java
@@ -54,7 +54,7 @@ src/main/java/com/aiinterview/platform/model/repository/UserSetUsageRepository.j
 
 ### Verify
 
-1. Chạy SQL trên DB dev (idempotent: `ADD COLUMN IF NOT EXISTS` không có ở MySQL 8 → dùng `INFORMATION_SCHEMA` guard hoặc chạy 1 lần và ghi chú).
+1. App start: flyway baseline 11 (DB đã có schema) rồi chạy V12; `ddl-auto=validate` không báo lệch.
 2. App start không lỗi mapping.
 3. `rebuild-main.ps1 -SourceList` cho 4 entity + 2 repository đã sửa.
 

@@ -1,5 +1,5 @@
--- V9: Position catalog for CV-driven recommendation (position_catalog + position_required_skill)
--- Seed data is applied by PositionCatalogSeeder because spring.flyway.enabled = false.
+-- V10: Position catalog for CV-driven recommendation (position_catalog + position_required_skill)
+-- Chỉ tạo bảng; seed do PositionCatalogSeeder đảm nhận vì cần idempotent theo dữ liệu hiện có.
 
 CREATE TABLE IF NOT EXISTS position_catalog (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,

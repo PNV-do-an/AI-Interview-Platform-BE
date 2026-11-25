@@ -60,6 +60,13 @@ public class StudyProgram {
     @Builder.Default
     private Integer completedTopics = 0;
 
+    // Cache nhận xét tổng của AI: 1 call/program thay vì gọi lại mỗi lần xem (D23).
+    @Column(name = "ai_summary", columnDefinition = "TEXT")
+    private String aiSummary;
+
+    @Column(name = "ai_summary_at")
+    private LocalDateTime aiSummaryAt;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 

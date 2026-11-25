@@ -38,6 +38,11 @@ public class StudyTopic {
     @Column(name = "skill_tag")
     private String skillTag;
 
+    // Bộ đã dùng cho topic này — chỉ để truy vết; rotation đọc user_set_usage (spec §4.4).
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "set_id")
+    private QuestionSet set;
+
     @Column(name = "total_questions")
     @Builder.Default
     private Integer totalQuestions = 0;

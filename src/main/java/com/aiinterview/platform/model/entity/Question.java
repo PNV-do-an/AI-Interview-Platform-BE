@@ -2,6 +2,8 @@ package com.aiinterview.platform.model.entity;
 
 import com.aiinterview.platform.common.util.SkillKeys;
 import com.aiinterview.platform.model.enums.DifficultyLevel;
+import com.aiinterview.platform.model.enums.QuestionArchetype;
+import com.aiinterview.platform.model.enums.QuestionReviewStatus;
 import com.aiinterview.platform.model.enums.QuestionType;
 import jakarta.persistence.*;
 import lombok.*;
@@ -13,7 +15,10 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "question", indexes = {
         @Index(name = "idx_question_pool_cell", columnList = "topic_id,skill_key,difficulty"),
-        @Index(name = "uk_question_fingerprint", columnList = "fingerprint", unique = true)
+        @Index(name = "uk_question_fingerprint", columnList = "fingerprint", unique = true),
+        // Bản copy giao cho topic có content_key = NULL; MySQL cho phép nhiều NULL
+        // trong unique index nên bản copy không vướng ràng buộc này.
+        @Index(name = "uk_question_skill_content", columnList = "skill_key,content_key", unique = true)
 })
 @Data
 @Builder
@@ -28,6 +33,11 @@ public class Question {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "topic_id")
     private StudyTopic topic;
+
+    // Bộ chứa câu hỏi. NULL ở bản copy đã giao cho topic (spec §4.2).
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "set_id")
+    private QuestionSet set;
 
     @Column(name = "skill_tag", nullable = false)
     private String skillTag;
@@ -72,6 +82,21 @@ public class Question {
     @Column(name = "fingerprint", length = 64)
     private String fingerprint;
 
+    // Dạng câu trong bộ: DEFINITION / COMPARISON / APPLICATION / DEBUGGING / TRADE_OFF / SCENARIO.
+    // Row cũ (set_id = NULL) để trống; không backfill (spec §4.5).
+    @Enumerated(EnumType.STRING)
+    @Column(name = "archetype", length = 20)
+    private QuestionArchetype archetype;
+
+    // Hash sau chuẩn hoá câu hỏi (bỏ stopword + synonym + sort). NULL ở bản copy.
+    @Column(name = "content_key", length = 64)
+    private String contentKey;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "review_status", length = 16, nullable = false)
+    @Builder.Default
+    private QuestionReviewStatus reviewStatus = QuestionReviewStatus.AUTO_APPROVED;
+
     @Column(name = "pool_question_id")
     private Long poolQuestionId;
 
@@ -93,6 +118,9 @@ public class Question {
         }
         if (language == null) {
             language = "en";
+        }
+        if (reviewStatus == null) {
+            reviewStatus = QuestionReviewStatus.AUTO_APPROVED;
         }
     }
 }

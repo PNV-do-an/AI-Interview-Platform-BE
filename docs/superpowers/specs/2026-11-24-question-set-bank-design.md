@@ -189,7 +189,7 @@ Bỏ `source` thì mất điểm (1): AI bị khoá vĩnh viễn vào nhãn đ�
 
 ### 4.9 Migration
 
-Flyway đang tắt (`flyway.enabled=false`, bảng do `ddl-auto` tạo) nên **không thêm file `.sql` vào `db/migration`**. Cần chạy tay script idempotent trên DB thật:
+Flyway đã bật (`spring.flyway.enabled=true`, `ddl-auto=validate`) — schema đi qua file `src/main/resources/db/migration/V12__question_set_bank.sql`. File vẫn giữ guard `INFORMATION_SCHEMA` vì DB dev hiện có sẵn schema do `ddl-auto` dựng trước đó; từ V13 trở đi dùng DDL thuần. Lệnh dưới đây là nội dung của migration đó:
 
 ```sql
 CREATE TABLE question_set (
