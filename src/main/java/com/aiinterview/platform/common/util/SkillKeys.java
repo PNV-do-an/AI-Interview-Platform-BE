@@ -27,7 +27,7 @@ public final class SkillKeys {
             "react js", "react",
             "vue js", "vue"
     );
-
+    
     // Khop voi do dai cot question.skill_key
     private static final int MAX_KEY_LENGTH = 100;
 

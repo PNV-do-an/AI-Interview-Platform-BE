@@ -34,9 +34,9 @@ class SkillKeysTest {
     @Test
     void fingerprintIsStableAndIgnoresWhitespaceAndCase() {
         String first = SkillKeys.fingerprint("docker", DifficultyLevel.BEGINNER,
-                QuestionType.SHORT_ANSWER, "en", "What is a layer?");
+                QuestionType.ESSAY, "en", "What is a layer?");
         String second = SkillKeys.fingerprint("Docker", DifficultyLevel.BEGINNER,
-                QuestionType.SHORT_ANSWER, "EN", "  what is a   layer?  ");
+                QuestionType.ESSAY, "EN", "  what is a   layer?  ");
 
         assertThat(first).isEqualTo(second).hasSize(64);
     }
@@ -44,9 +44,9 @@ class SkillKeysTest {
     @Test
     void fingerprintChangesWithCell() {
         String beginner = SkillKeys.fingerprint("docker", DifficultyLevel.BEGINNER,
-                QuestionType.SHORT_ANSWER, "en", "What is a layer?");
+                QuestionType.ESSAY, "en", "What is a layer?");
         String advanced = SkillKeys.fingerprint("docker", DifficultyLevel.ADVANCED,
-                QuestionType.SHORT_ANSWER, "en", "What is a layer?");
+                QuestionType.ESSAY, "en", "What is a layer?");
 
         assertThat(beginner).isNotEqualTo(advanced);
     }
